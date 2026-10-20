@@ -548,7 +548,8 @@ private fun ShikshaPulseApp(
                     "Android requires the Shiksha Pulse Accessibility Service to detect Reel swipe events. " +
                         "Android also sends the service accessibility events from other apps so it can remove the blocker when you leave Instagram. " +
                         "It inspects visible view identifiers only in Instagram. Swipe counts are estimates; screen content is not saved or sent. " +
-                        "You can turn the service off in Android Settings."
+                            "When blocking is on, it attempts one tap on a detected Reel to pause playback before showing the focus screen. " +
+                            "You can turn the service off in Android Settings."
                 )
             },
             confirmButton = {
