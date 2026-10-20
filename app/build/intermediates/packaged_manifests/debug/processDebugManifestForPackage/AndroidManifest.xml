@@ -33,6 +33,7 @@
         android:extractNativeLibs="false"
         android:label="Shiksha Pulse"
         android:supportsRtl="true"
+        android:testOnly="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar" >
         <activity
             android:name="com.shikshapulse.app.MainActivity"
