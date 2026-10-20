@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-debug-46:/xml_reel_tracker_accessibility_service.xml.flat",
+        "source": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-main-48:/xml/reel_tracker_accessibility_service.xml"
+    },
+    {
+        "merged": "com.shikshapulse.app-debug-46:/xml_reel_tracker_accessibility_service.xml.flat",
+        "source": "com.shikshapulse.app-main-48:/xml/reel_tracker_accessibility_service.xml"
+    }
+]

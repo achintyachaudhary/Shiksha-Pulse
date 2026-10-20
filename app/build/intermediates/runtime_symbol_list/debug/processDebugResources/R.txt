@@ -239,16 +239,17 @@ int string navigation_menu 0x7f080048
 int string not_selected 0x7f080049
 int string range_end 0x7f08004a
 int string range_start 0x7f08004b
-int string selected 0x7f08004c
-int string state_empty 0x7f08004d
-int string state_off 0x7f08004e
-int string state_on 0x7f08004f
-int string status_bar_notification_info_overflow 0x7f080050
-int string switch_role 0x7f080051
-int string tab 0x7f080052
-int string template_percent 0x7f080053
-int string tooltip_description 0x7f080054
-int string tooltip_label 0x7f080055
+int string reel_tracker_accessibility_description 0x7f08004c
+int string selected 0x7f08004d
+int string state_empty 0x7f08004e
+int string state_off 0x7f08004f
+int string state_on 0x7f080050
+int string status_bar_notification_info_overflow 0x7f080051
+int string switch_role 0x7f080052
+int string tab 0x7f080053
+int string template_percent 0x7f080054
+int string tooltip_description 0x7f080055
+int string tooltip_label 0x7f080056
 int style DialogWindowTheme 0x7f090000
 int style EdgeToEdgeFloatingDialogTheme 0x7f090001
 int style EdgeToEdgeFloatingDialogWindowTheme 0x7f090002
@@ -305,3 +306,4 @@ int styleable GradientColor_android_endY 11
 int[] styleable GradientColorItem { 0x010101a5, 0x01010514 }
 int styleable GradientColorItem_android_color 0
 int styleable GradientColorItem_android_offset 1
+int xml reel_tracker_accessibility_service 0x7f0b0000

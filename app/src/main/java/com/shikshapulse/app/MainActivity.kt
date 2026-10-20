@@ -1,14 +1,24 @@
 package com.shikshapulse.app
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,6 +53,8 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -56,21 +69,27 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -87,7 +106,8 @@ private val Blue = Color(0xFF5575F7)
 private val Teal = Color(0xFF20A990)
 private val Amber = Color(0xFFFFB547)
 private val Lilac = Color(0xFF8C6BE8)
-private const val TEACHER_SESSION_PRICE = 100
+internal const val PREFS_NAME = "shiksha_pulse"
+internal const val INSTAGRAM_PACKAGE = "com.instagram.android"
 
 private val topicsBySubject = mapOf(
     "Physics" to listOf(
@@ -122,7 +142,15 @@ private data class StudyLog(
     val topic: String,
     val minutes: Int,
     val reward: Double,
-    val timestamp: Long
+    val timestamp: Long,
+    val startedAt: Long = timestamp - minutes * 60_000L
+)
+
+private data class ActiveStudySession(
+    val id: String,
+    val subject: String,
+    val topic: String,
+    val startedAt: Long
 )
 
 private data class Teacher(
@@ -163,6 +191,76 @@ private data class TimelineEntry(
     val color: Color
 )
 
+internal data class ReelTrackingSnapshot(
+    val enabled: Boolean,
+    val blockEnabled: Boolean,
+    val count: Int,
+    val swipeTimes: List<Long>
+)
+
+internal object ReelTrackingPreferences {
+    private const val BLOCK_ENABLED = "reels_block_enabled"
+    private const val REEL_EVENTS = "reel_swipe_events"
+
+    fun load(context: Context): ReelTrackingSnapshot {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val today = dayKey(System.currentTimeMillis())
+        val events = JSONArray(prefs.getString(REEL_EVENTS, "[]") ?: "[]")
+        val swipeTimes = buildList {
+            for (index in 0 until events.length()) {
+                val timestamp = events.optLong(index)
+                if (dayKey(timestamp) == today) add(timestamp)
+            }
+        }
+        return ReelTrackingSnapshot(
+            enabled = isAccessibilityServiceEnabled(context),
+            blockEnabled = prefs.getBoolean(BLOCK_ENABLED, false),
+            count = prefs.getInt("reel_count_$today", swipeTimes.size),
+            swipeTimes = swipeTimes
+        )
+    }
+
+    fun setBlockEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(BLOCK_ENABLED, enabled)
+            .apply()
+    }
+
+    fun recordSwipe(context: Context, timestamp: Long): Int {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val today = dayKey(timestamp)
+        val countKey = "reel_count_$today"
+        val count = prefs.getInt(countKey, 0) + 1
+        val existing = JSONArray(prefs.getString(REEL_EVENTS, "[]") ?: "[]")
+        val events = JSONArray()
+        val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }.timeInMillis
+        for (index in 0 until existing.length()) {
+            val eventTime = existing.optLong(index)
+            if (eventTime >= cutoff) events.put(eventTime)
+        }
+        events.put(timestamp)
+        prefs.edit()
+            .putInt(countKey, count)
+            .putString(REEL_EVENTS, events.toString())
+            .apply()
+        return count
+    }
+
+    fun isBlockEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(BLOCK_ENABLED, false)
+
+    fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { service ->
+                service.resolveInfo.serviceInfo.packageName == context.packageName &&
+                    service.resolveInfo.serviceInfo.name == ReelTrackingAccessibilityService::class.java.name
+            }
+    }
+}
+
 private data class AppUsage(val packageName: String, val name: String, val minutes: Int)
 private data class UsageSnapshot(val hasAccess: Boolean, val apps: List<AppUsage>) {
     val totalMinutes: Int get() = apps.sumOf { it.minutes }
@@ -184,7 +282,6 @@ private val trackedSocialApps = listOf(
 
 private enum class AppTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
-    STUDY("Study", Icons.Default.MenuBook),
     TEACHERS("Teachers", Icons.Default.School),
     WALLET("Wallet", Icons.Default.AccountBalanceWallet)
 }
@@ -192,20 +289,28 @@ private enum class AppTab(val title: String, val icon: ImageVector) {
 class MainActivity : ComponentActivity() {
     private var usageSnapshot by mutableStateOf(UsageSnapshot(false, emptyList()))
     private var logs by mutableStateOf<List<StudyLog>>(emptyList())
+    private var activeSession by mutableStateOf<ActiveStudySession?>(null)
     private var usageHistory by mutableStateOf<Map<String, Map<String, Int>>>(emptyMap())
     private var usageEvents by mutableStateOf<List<SocialUsageEvent>>(emptyList())
     private var bookings by mutableStateOf<List<TeacherBooking>>(emptyList())
-    private var tapCounts by mutableStateOf<Map<String, Int>>(emptyMap())
     private var studentName by mutableStateOf("")
+    private var reelTracking by mutableStateOf(ReelTrackingSnapshot(false, false, 0, emptyList()))
+    private val preferencesListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key.startsWith("reel_count_") || key == "reel_swipe_events" || key == "reels_block_enabled") {
+            runOnUiThread { reelTracking = ReelTrackingPreferences.load(this) }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         logs = StudyLogStore.load(this)
+        activeSession = ActiveStudySessionStore.load(this)
         usageHistory = UsageHistoryStore.load(this)
         usageEvents = SocialUsageEventStore.load(this)
         bookings = TeacherBookingStore.load(this)
-        tapCounts = StudyTapStore.load(this)
         studentName = StudentProfileStore.load(this)
+        reelTracking = ReelTrackingPreferences.load(this)
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).registerOnSharedPreferenceChangeListener(preferencesListener)
         refreshUsage()
         setContent {
             ShikshaPulseApp(
@@ -214,10 +319,15 @@ class MainActivity : ComponentActivity() {
                 usageHistory = usageHistory,
                 usageEvents = usageEvents,
                 bookings = bookings,
-                tapCounts = tapCounts,
                 studentName = studentName,
-                onAddStudy = ::addStudy,
+                activeSession = activeSession,
+                reelTracking = reelTracking,
+                onStartStudy = ::startStudy,
+                onFinishStudy = ::finishStudy,
+                onCancelStudy = ::cancelStudy,
                 onBookTeacher = ::bookTeacher,
+                onToggleReelBlocking = ::toggleReelBlocking,
+                onOpenAccessibilitySettings = ::openAccessibilitySettings,
                 onRequestUsageAccess = ::openUsageAccessSettings,
                 onSaveName = ::saveStudentName
             )
@@ -227,13 +337,25 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshUsage()
+        reelTracking = ReelTrackingPreferences.load(this)
     }
 
-    private fun addStudy(subject: String, topic: String, minutes: Int) {
-        val tapKey = studyTapKey(subject, topic, minutes)
-        tapCounts = tapCounts + (tapKey to ((tapCounts[tapKey] ?: 0) + 1))
-        StudyTapStore.save(this, tapCounts)
+    override fun onDestroy() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(preferencesListener)
+        super.onDestroy()
+    }
 
+    private fun startStudy(subject: String, topic: String) {
+        if (activeSession != null) return
+        val session = ActiveStudySession(UUID.randomUUID().toString(), subject, topic, System.currentTimeMillis())
+        activeSession = session
+        ActiveStudySessionStore.save(this, session)
+    }
+
+    private fun finishStudy() {
+        val session = activeSession ?: return
+        val finishedAt = System.currentTimeMillis()
+        val minutes = ((finishedAt - session.startedAt) / 60_000L).toInt().coerceAtLeast(1)
         val factor = if (!usageSnapshot.hasAccess) {
             1.0
         } else {
@@ -244,10 +366,15 @@ class MainActivity : ComponentActivity() {
             }
         }
         val amount = (minutes / 60.0 * 5.0 * factor * 100).toInt() / 100.0
-        logs = listOf(
-            StudyLog(UUID.randomUUID().toString(), subject, topic, minutes, amount, System.currentTimeMillis())
-        ) + logs
+        logs = listOf(StudyLog(session.id, session.subject, session.topic, minutes, amount, finishedAt, session.startedAt)) + logs
         StudyLogStore.save(this, logs)
+        activeSession = null
+        ActiveStudySessionStore.save(this, null)
+    }
+
+    private fun cancelStudy() {
+        activeSession = null
+        ActiveStudySessionStore.save(this, null)
     }
 
     private fun saveStudentName(name: String) {
@@ -256,17 +383,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun bookTeacher(teacher: Teacher) {
-        val hasEnoughBalance = logs.sumOf { it.reward } -
-            usageHistory.totalSocialMinutes() -
-            bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE >= TEACHER_SESSION_PRICE
-        if (!hasEnoughBalance) return
-
-        val accepted = teacher.available && bookings.none { it.accepted && it.teacherName == teacher.name }
         val booking = TeacherBooking(
             id = UUID.randomUUID().toString(),
             teacherName = teacher.name,
             subject = teacher.subject,
-            accepted = accepted,
+            accepted = teacher.available,
             timestamp = System.currentTimeMillis()
         )
         bookings = listOf(booking) + bookings
@@ -275,6 +396,20 @@ class MainActivity : ComponentActivity() {
 
     private fun openUsageAccessSettings() {
         startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    }
+
+    private fun openAccessibilitySettings() {
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    private fun toggleReelBlocking() {
+        if (!reelTracking.enabled) {
+            ReelTrackingPreferences.setBlockEnabled(this, true)
+            openAccessibilitySettings()
+        } else {
+            ReelTrackingPreferences.setBlockEnabled(this, !reelTracking.blockEnabled)
+            reelTracking = ReelTrackingPreferences.load(this)
+        }
     }
 
     private fun refreshUsage() {
@@ -312,15 +447,21 @@ private fun ShikshaPulseApp(
     usageHistory: Map<String, Map<String, Int>>,
     usageEvents: List<SocialUsageEvent>,
     bookings: List<TeacherBooking>,
-    tapCounts: Map<String, Int>,
     studentName: String,
-    onAddStudy: (String, String, Int) -> Unit,
+    activeSession: ActiveStudySession?,
+    reelTracking: ReelTrackingSnapshot,
+    onStartStudy: (String, String) -> Unit,
+    onFinishStudy: () -> Unit,
+    onCancelStudy: () -> Unit,
+    onToggleReelBlocking: () -> Unit,
+    onOpenAccessibilitySettings: () -> Unit,
     onBookTeacher: (Teacher) -> Unit,
     onRequestUsageAccess: () -> Unit,
     onSaveName: (String) -> Unit
 ) {
     var selectedTab by androidx.compose.runtime.remember { mutableStateOf(AppTab.HOME) }
     var nameDraft by androidx.compose.runtime.remember { mutableStateOf("") }
+    var showReelDisclosure by androidx.compose.runtime.remember { mutableStateOf(false) }
     val greeting = androidx.compose.runtime.remember(studentName) {
         listOf(
             "You’re doing great today!",
@@ -361,34 +502,65 @@ private fun ShikshaPulseApp(
                 }
             }
         ) { insets ->
-            when (selectedTab) {
-                AppTab.HOME -> DashboardScreen(
-                    logs = logs,
-                    usage = usage,
-                    usageHistory = usageHistory,
-                    usageEvents = usageEvents,
-                    bookings = bookings,
-                    studentName = studentName,
-                    greeting = greeting,
-                    onRequestUsageAccess = onRequestUsageAccess,
-                    modifier = Modifier.padding(insets)
-                )
-                AppTab.STUDY -> StudyScreen(
-                    tapCounts = tapCounts,
-                    onAddStudy = onAddStudy,
-                    modifier = Modifier.padding(insets)
-                )
-                AppTab.TEACHERS -> TeachersScreen(
-                    bookings = bookings,
-                    balance = logs.sumOf { it.reward } -
-                        usageHistory.totalSocialMinutes() -
-                        bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE,
-                    onBookTeacher = onBookTeacher,
-                    modifier = Modifier.padding(insets)
-                )
-                AppTab.WALLET -> WalletScreen(logs, usageHistory, bookings, Modifier.padding(insets))
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    (fadeIn() + slideInHorizontally { it / 12 }) togetherWith
+                        (fadeOut() + slideOutHorizontally { -it / 12 })
+                },
+                label = "navigation"
+            ) { tab ->
+                when (tab) {
+                    AppTab.HOME -> DashboardScreen(
+                        logs = logs,
+                        usage = usage,
+                        usageHistory = usageHistory,
+                        usageEvents = usageEvents,
+                        bookings = bookings,
+                        studentName = studentName,
+                        greeting = greeting,
+                        activeSession = activeSession,
+                        reelTracking = reelTracking,
+                        onStartStudy = onStartStudy,
+                        onFinishStudy = onFinishStudy,
+                        onCancelStudy = onCancelStudy,
+                        onRequestReelTracking = { showReelDisclosure = true },
+                        onToggleReelBlocking = onToggleReelBlocking,
+                        onRequestUsageAccess = onRequestUsageAccess,
+                        modifier = Modifier.padding(insets)
+                    )
+                    AppTab.TEACHERS -> TeachersScreen(
+                        bookings = bookings,
+                        onBookTeacher = onBookTeacher,
+                        modifier = Modifier.padding(insets)
+                    )
+                    AppTab.WALLET -> WalletScreen(logs, usageHistory, Modifier.padding(insets))
+                }
             }
         }
+    }
+    if (showReelDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showReelDisclosure = false },
+            title = { Text("Enable Instagram Reel tracking?") },
+            text = {
+                Text(
+                    "Android requires the Shiksha Pulse Accessibility Service to detect Reel swipe events. " +
+                        "Android also sends the service accessibility events from other apps so it can remove the blocker when you leave Instagram. " +
+                        "It inspects visible view identifiers only in Instagram. Swipe counts are estimates; screen content is not saved or sent. " +
+                        "You can turn the service off in Android Settings."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showReelDisclosure = false
+                    onOpenAccessibilitySettings()
+                }) { Text("Open accessibility settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReelDisclosure = false }) { Text("Not now") }
+            }
+        )
     }
     if (studentName.isBlank()) {
         AlertDialog(
@@ -424,15 +596,34 @@ private fun DashboardScreen(
     bookings: List<TeacherBooking>,
     studentName: String,
     greeting: String,
+    activeSession: ActiveStudySession?,
+    reelTracking: ReelTrackingSnapshot,
+    onStartStudy: (String, String) -> Unit,
+    onFinishStudy: () -> Unit,
+    onCancelStudy: () -> Unit,
+    onRequestReelTracking: () -> Unit,
+    onToggleReelBlocking: () -> Unit,
     onRequestUsageAccess: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showSessionSetup by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var selectedSubject by androidx.compose.runtime.remember { mutableStateOf("Physics") }
+    var selectedTopic by androidx.compose.runtime.remember { mutableStateOf(topicsBySubject.getValue("Physics").first()) }
+    var startVerb by androidx.compose.runtime.remember { mutableStateOf(listOf("Start", "Begin", "Kick Off", "Jump Into").random()) }
+    var now by androidx.compose.runtime.remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(activeSession?.startedAt) {
+        while (activeSession != null) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
     val todayLogs = logs.filter { isToday(it.timestamp) }
-    val todayMinutes = todayLogs.sumOf { it.minutes }
+    val todayMinutes = todayLogs.sumOf { it.minutes } +
+        (activeSession?.takeIf { isToday(it.startedAt) }
+            ?.let { ((now - it.startedAt) / 60_000L).toInt() } ?: 0)
     val todaySocialMinutes = usage.totalMinutes
     val netBalance = logs.sumOf { it.reward } -
-        usageHistory.totalSocialMinutes() -
-        bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE
+        usageHistory.totalSocialMinutes()
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -441,7 +632,7 @@ private fun DashboardScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("SHIKSHA PULSE", color = Blue, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.4.sp)
-                Text("Hi $studentName,", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+                Text("Hi $studentName ✨", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
             }
             Box(
                 Modifier.size(44.dp).clip(CircleShape).background(Color(0xFFE8ECFF)),
@@ -454,10 +645,15 @@ private fun DashboardScreen(
 
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Ink),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                Modifier.background(
+                    Brush.linearGradient(listOf(Color(0xFF263B70), Color(0xFF6657B8), Color(0xFF9B65AE)))
+                ).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
                         androidx.compose.material3.Icon(Icons.Default.AutoGraph, null, tint = Color(0xFF9DB1FF))
@@ -484,7 +680,7 @@ private fun DashboardScreen(
             MetricCard(
                 title = "Wallet balance",
                 value = formatMoney(netBalance),
-                caption = "after social and session costs",
+                caption = "after social app deductions",
                 icon = Icons.Default.AccountBalanceWallet,
                 accent = Teal,
                 modifier = Modifier.weight(1f)
@@ -498,6 +694,37 @@ private fun DashboardScreen(
                 modifier = Modifier.weight(1f)
             )
         }
+
+        if (activeSession == null) {
+            Button(
+                onClick = {
+                    startVerb = listOf("Start", "Begin", "Kick Off", "Jump Into")
+                        .filterNot { it == startVerb }.random()
+                    showSessionSetup = true
+                },
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                androidx.compose.material3.Icon(Icons.Default.PlayArrow, null)
+                Spacer(Modifier.width(8.dp))
+                AnimatedContent(targetState = startVerb, label = "study-button-label") { verb ->
+                    Text("$verb Study", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        } else {
+            ActiveStudyCard(
+                session = activeSession,
+                now = now,
+                onFinish = onFinishStudy,
+                onCancel = onCancelStudy
+            )
+        }
+
+        ReelTrackerCard(
+            snapshot = reelTracking,
+            onEnableTracking = onRequestReelTracking,
+            onToggleBlocking = onToggleReelBlocking
+        )
 
         Card(
             shape = RoundedCornerShape(20.dp),
@@ -531,7 +758,13 @@ private fun DashboardScreen(
             }
         }
 
-        TimelineCard(logs = logs, usageEvents = usageEvents, bookings = bookings)
+        TimelineCard(
+            logs = logs,
+            usageEvents = usageEvents,
+            bookings = bookings,
+            swipeTimes = reelTracking.swipeTimes,
+            activeSession = activeSession
+        )
 
         LeaderboardCard(logs = logs, studentName = studentName)
 
@@ -551,22 +784,67 @@ private fun DashboardScreen(
         }
         Spacer(Modifier.height(8.dp))
     }
+    if (showSessionSetup) {
+        AlertDialog(
+            onDismissRequest = { showSessionSetup = false },
+            title = { Text("Set your focus") },
+            text = {
+                Column(
+                    Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Choose a subject", color = Muted, fontSize = 12.sp)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        topicsBySubject.keys.forEach { subject ->
+                            FilterChip(
+                                selected = subject == selectedSubject,
+                                onClick = {
+                                    selectedSubject = subject
+                                    selectedTopic = topicsBySubject.getValue(subject).first()
+                                },
+                                label = { Text(subject) }
+                            )
+                        }
+                    }
+                    Text("Pick a topic", color = Muted, fontSize = 12.sp)
+                    topicsBySubject.getValue(selectedSubject).forEach { topic ->
+                        FilterChip(
+                            selected = selectedTopic == topic,
+                            onClick = { selectedTopic = topic },
+                            label = { Text(topic) }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSessionSetup = false
+                    onStartStudy(selectedSubject, selectedTopic)
+                }) { Text("Start session") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSessionSetup = false }) { Text("Not now") }
+            }
+        )
+    }
 }
 
 @Composable
 private fun TimelineCard(
     logs: List<StudyLog>,
     usageEvents: List<SocialUsageEvent>,
-    bookings: List<TeacherBooking>
+    bookings: List<TeacherBooking>,
+    swipeTimes: List<Long>,
+    activeSession: ActiveStudySession?
 ) {
     val today = dayKey(System.currentTimeMillis())
     val entries = buildList {
         logs.filter { isToday(it.timestamp) }.forEach { log ->
             add(
                 TimelineEntry(
-                    title = "Studied ${log.topic}",
-                    detail = "${log.subject} • ${formatDuration(log.minutes)}",
-                    timestamp = log.timestamp,
+                    title = "${log.subject} • ${log.topic}",
+                    detail = "${timeLabel(log.startedAt)} – ${timeLabel(log.timestamp)} • ${formatDuration(log.minutes)} studied",
+                    timestamp = log.startedAt,
                     icon = Icons.Default.MenuBook,
                     color = Blue
                 )
@@ -576,7 +854,7 @@ private fun TimelineCard(
             add(
                 TimelineEntry(
                     title = "${event.appName} used",
-                    detail = "${formatDuration(event.minutes)} app time • Reels aren’t tracked separately",
+                    detail = "${formatDuration(event.minutes)} app time detected",
                     timestamp = event.timestamp,
                     icon = trackedSocialApps.firstOrNull { it.packageName == event.packageName }?.icon
                         ?: Icons.Default.MoreTime,
@@ -588,16 +866,43 @@ private fun TimelineCard(
         bookings.filter { isToday(it.timestamp) }.forEach { booking ->
             add(
                 TimelineEntry(
-                    title = if (booking.accepted) "Session booked with ${booking.teacherName}" else "Request declined by ${booking.teacherName}",
-                    detail = if (booking.accepted) "₹$TEACHER_SESSION_PRICE • ${booking.subject}" else "Teacher unavailable • No charge",
+                    title = if (booking.accepted) "Connected with ${booking.teacherName}" else "Request declined by ${booking.teacherName}",
+                    detail = if (booking.accepted) booking.subject else "Teacher unavailable",
                     timestamp = booking.timestamp,
                     icon = Icons.Default.School,
                     color = if (booking.accepted) Teal else Color(0xFFD94B55)
                 )
             )
         }
+        swipeTimes.forEach { swipeTime ->
+            add(
+                TimelineEntry(
+                    title = "Instagram Reel swipe",
+                    detail = "Estimated swipe • on-device count",
+                    timestamp = swipeTime,
+                    icon = Icons.Default.PhotoCamera,
+                    color = Color(0xFFE1306C)
+                )
+            )
+        }
+        activeSession?.let { session ->
+            if (isToday(session.startedAt)) {
+                add(
+                    TimelineEntry(
+                        title = "Studying ${session.topic}",
+                        detail = "${session.subject} • in progress",
+                        timestamp = session.startedAt,
+                        icon = Icons.Default.PlayArrow,
+                        color = Teal
+                    )
+                )
+            }
+        }
     }.sortedByDescending { it.timestamp }
 
+    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val eventsByHour = entries.groupBy { Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(Calendar.HOUR_OF_DAY) }
+    val hoursToShow = 6..maxOf(6, currentHour)
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -607,69 +912,84 @@ private fun TimelineCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Today's timeline", color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Your study sessions and app activity", color = Muted, fontSize = 11.sp)
+                    Text("A calendar view of how today unfolded", color = Muted, fontSize = 11.sp)
                 }
                 androidx.compose.material3.Icon(Icons.Default.Schedule, null, tint = Blue)
             }
-            if (entries.isEmpty()) {
-                Text("Your activity will show up here as you go.", color = Muted, fontSize = 12.sp)
-            } else {
-                entries.take(12).forEach { entry ->
+            Column {
+                hoursToShow.forEach { hour ->
+                    val hourEntries = eventsByHour[hour].orEmpty().sortedBy { it.timestamp }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        Text(
+                            hourLabel(hour),
+                            color = Muted,
+                            fontSize = 10.sp,
+                            modifier = Modifier.width(44.dp).padding(top = 4.dp)
+                        )
+                        Canvas(
+                            Modifier.width(26.dp).height(maxOf(58.dp, (hourEntries.size * 57).dp))
+                        ) {
+                            drawLine(
+                                color = Color(0xFFDCE2F0),
+                                start = androidx.compose.ui.geometry.Offset(size.width / 2, 0f),
+                                end = androidx.compose.ui.geometry.Offset(size.width / 2, size.height),
+                                strokeWidth = 2.dp.toPx()
+                            )
+                            if (hourEntries.isNotEmpty()) {
+                                drawCircle(
+                                    color = hourEntries.first().color,
+                                    radius = 5.dp.toPx(),
+                                    center = androidx.compose.ui.geometry.Offset(size.width / 2, 8.dp.toPx())
+                                )
+                            }
+                        }
+                        Column(
+                            Modifier.weight(1f).heightIn(min = 58.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (hourEntries.isEmpty()) {
+                                Spacer(Modifier.height(50.dp))
+                            } else {
+                                hourEntries.forEach { entry ->
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            Modifier.size(34.dp).clip(CircleShape).background(entry.color.copy(alpha = .12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            androidx.compose.material3.Icon(entry.icon, null, tint = entry.color, modifier = Modifier.size(17.dp))
+                                    Column(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                                            .background(entry.color.copy(alpha = .08f))
+                                            .padding(9.dp)
+                                    ) {
+                                        Text(entry.title, color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                        Text(entry.detail, color = Muted, fontSize = 10.sp)
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(timeLabel(entry.timestamp), color = Muted, fontSize = 9.sp)
+                                }
+                            }
                         }
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(entry.title, color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                            Text(entry.detail, color = Muted, fontSize = 10.sp)
-                        }
-                        Text(timeLabel(entry.timestamp), color = Muted, fontSize = 10.sp)
                     }
                 }
             }
         }
     }
 }
+}
 
 @Composable
 private fun TeachersScreen(
     bookings: List<TeacherBooking>,
-    balance: Double,
     onBookTeacher: (Teacher) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val canAfford = balance >= TEACHER_SESSION_PRICE
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Spacer(Modifier.height(8.dp))
-        Text("Book a teacher", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
-        Text("Request a one-to-one session with a teacher.", color = Muted, fontSize = 14.sp)
-        Text("Demo availability: available requests are accepted; busy requests are declined.", color = Muted, fontSize = 12.sp)
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Your wallet balance", color = Muted, fontSize = 12.sp)
-                    Text(formatMoney(balance), color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                }
-                Text("Session ₹$TEACHER_SESSION_PRICE", color = Blue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
-        }
-        if (!canAfford) {
-            Text("You need at least ₹$TEACHER_SESSION_PRICE in your wallet to request a session.", color = Color(0xFFD94B55), fontSize = 12.sp)
-        }
+        Text("Your teachers", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+        Text("Find a teacher and request to connect.", color = Muted, fontSize = 14.sp)
+        Text("Sample availability • no payment needed", color = Muted, fontSize = 12.sp)
         Text("TEACHERS", color = Muted, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -677,12 +997,10 @@ private fun TeachersScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(teachers) { teacher ->
-                val alreadyBooked = bookings.any { it.accepted && it.teacherName == teacher.name }
-                val available = teacher.available && !alreadyBooked
+                val latestRequest = bookings.firstOrNull { it.teacherName == teacher.name }
                 TeacherCard(
                     teacher = teacher,
-                    available = available,
-                    canAfford = canAfford,
+                    requestStatus = latestRequest?.let { if (it.accepted) "Connected" else "Unavailable right now" },
                     onBook = { onBookTeacher(teacher) }
                 )
             }
@@ -693,10 +1011,10 @@ private fun TeachersScreen(
 @Composable
 private fun TeacherCard(
     teacher: Teacher,
-    available: Boolean,
-    canAfford: Boolean,
+    requestStatus: String?,
     onBook: () -> Unit
 ) {
+    val available = teacher.available
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -716,25 +1034,14 @@ private fun TeacherCard(
                     Text(teacher.subject, color = Muted, fontSize = 11.sp)
                 }
                 Text(
-                    if (available) "Available" else "Busy",
+                    requestStatus ?: if (available) "Available" else "Busy",
                     color = if (available) Teal else Color(0xFFD94B55),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 11.sp
                 )
             }
-            Button(
-                onClick = onBook,
-                enabled = canAfford,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    when {
-                        !canAfford -> "Need ₹$TEACHER_SESSION_PRICE to request"
-                        available -> "Request session • ₹$TEACHER_SESSION_PRICE if accepted"
-                        else -> "Request while busy • no charge if declined"
-                    }
-                )
+            Button(onClick = onBook, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                Text("Request Connect")
             }
         }
     }
@@ -766,23 +1073,137 @@ private fun SocialUsageRow(app: SocialApp, minutes: Int, hasAccess: Boolean) {
 }
 
 @Composable
+private fun ReelTrackerCard(
+    snapshot: ReelTrackingSnapshot,
+    onEnableTracking: () -> Unit,
+    onToggleBlocking: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(42.dp).clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFFFEAF1)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        tint = Color(0xFFE1306C)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Instagram Reels", color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(
+                        if (snapshot.enabled) "Swipe count is an estimate" else "Optional, on-device tracking",
+                        color = Muted,
+                        fontSize = 11.sp
+                    )
+                }
+                if (snapshot.enabled) {
+                    Text(snapshot.count.toString(), color = Blue, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                }
+            }
+            Text(
+                "Reel swipes detected today. Instagram updates may affect detection accuracy.",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            if (!snapshot.enabled) {
+                Button(onClick = onEnableTracking, modifier = Modifier.fillMaxWidth()) {
+                    Text("Enable Reel tracking")
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Block detected Reels", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(
+                            if (snapshot.blockEnabled) "A focus screen covers detected Reels" else "Reels stay open while tracking",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Switch(checked = snapshot.blockEnabled, onCheckedChange = { onToggleBlocking() })
+                }
+                Text("Turn tracking off anytime in Android Accessibility settings.", color = Muted, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveStudyCard(
+    session: ActiveStudySession,
+    now: Long,
+    onFinish: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val elapsed = (now - session.startedAt).coerceAtLeast(0)
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier.background(Brush.linearGradient(listOf(Color(0xFF164B54), Color(0xFF218D84))))
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("FOCUS SESSION IN PROGRESS", color = Color.White.copy(alpha = .8f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("${session.subject} • ${session.topic}", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(formatElapsed(elapsed), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 36.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF176B67))
+                ) {
+                    androidx.compose.material3.Icon(Icons.Default.Stop, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Finish & save")
+                }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
+                    Text("Discard")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LeaderboardCard(logs: List<StudyLog>, studentName: String) {
-    val currentMonthMinutes = monthStudyMinutes(logs)
-    val rankings = listOf(
+    var period by androidx.compose.runtime.remember { mutableStateOf("Month") }
+    var selectedStudent by androidx.compose.runtime.remember { mutableStateOf(studentName) }
+    val sampleMonth = listOf(
         "Aarav Sharma" to 2_520,
         "Ananya Patel" to 2_340,
         "Ishaan Verma" to 2_160,
         "Diya Nair" to 1_980,
-        "Kabir Singh" to 1_800,
-        studentName to currentMonthMinutes
-    ).sortedByDescending { it.second }
+        "Kabir Singh" to 1_800
+    )
+    val now = System.currentTimeMillis()
+    val currentStudyMinutes = if (period == "Month") {
+        monthStudyMinutes(logs)
+    } else {
+        logs.filter { now - it.timestamp < 7 * 24 * 60 * 60 * 1000L }.sumOf { it.minutes }
+    }
+    val scale = if (period == "Month") 1f else 7f / 30f
+    val rankings = (sampleMonth.map { (name, minutes) -> name to (minutes * scale).toInt() } +
+        (studentName to currentStudyMinutes)).sortedByDescending { it.second }
+    val maxMinutes = rankings.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
+    val selectedRank = rankings.indexOfFirst { it.first == selectedStudent } + 1
 
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Monthly leaderboard", color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -790,26 +1211,63 @@ private fun LeaderboardCard(logs: List<StudyLog>, studentName: String) {
                 }
                 androidx.compose.material3.Icon(Icons.Default.AutoGraph, null, tint = Blue)
             }
-            rankings.forEachIndexed { index, (name, minutes) ->
-                val isCurrentStudent = name == studentName
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isCurrentStudent) Color(0xFFEAF0FF) else Color.Transparent)
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("#${index + 1}", color = Blue, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(30.dp))
-                    Text(
-                        if (isCurrentStudent) "$name (you)" else name,
-                        color = Ink,
-                        fontWeight = if (isCurrentStudent) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 12.sp,
-                        modifier = Modifier.weight(1f)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Week", "Month").forEach { option ->
+                    FilterChip(
+                        selected = period == option,
+                        onClick = { period = option },
+                        label = { Text(option) }
                     )
-                    Text(formatDuration(minutes), color = Muted, fontSize = 11.sp)
                 }
             }
+            rankings.forEachIndexed { index, (name, minutes) ->
+                val isCurrentStudent = name == studentName
+                val selected = name == selectedStudent
+                val progress by animateFloatAsState(
+                    targetValue = minutes.toFloat() / maxMinutes,
+                    label = "leaderboard-bar"
+                )
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (selected) Color(0xFFEAF0FF) else Color.Transparent)
+                        .clickable { selectedStudent = name }
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                listOf("🥇", "🥈", "🥉").getOrNull(index) ?: "#${index + 1}",
+                                fontSize = 12.sp,
+                                modifier = Modifier.width(32.dp)
+                            )
+                            Text(
+                                if (isCurrentStudent) "$name (you)" else name,
+                                color = Ink,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(formatDuration(minutes), color = Muted, fontSize = 10.sp)
+                        }
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),
+                            color = if (isCurrentStudent) Teal else Blue.copy(alpha = .75f),
+                            trackColor = Color(0xFFE9EDF5),
+                            strokeCap = StrokeCap.Round
+                        )
+                    }
+                }
+            }
+            Text(
+                "$selectedStudent is #$selectedRank with ${formatDuration(rankings.getOrNull(selectedRank - 1)?.second ?: 0)} studied this $period.",
+                color = Blue,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text("Sample leaderboard data", color = Muted, fontSize = 10.sp)
         }
     }
 }
@@ -838,116 +1296,14 @@ private fun MetricCard(
 }
 
 @Composable
-private fun StudyScreen(
-    tapCounts: Map<String, Int>,
-    onAddStudy: (String, String, Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var selectedSubject by androidx.compose.runtime.remember { mutableStateOf("Physics") }
-    Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Spacer(Modifier.height(8.dp))
-        Text("Study tracker", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
-        Text("Choose a subject and log a focused session.", color = Muted, fontSize = 14.sp)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            topicsBySubject.keys.forEach { subject ->
-                FilterChip(
-                    selected = selectedSubject == subject,
-                    onClick = { selectedSubject = subject },
-                    label = { Text(subject) }
-                )
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${topicsBySubject[selectedSubject]?.size ?: 0} topics", color = Ink, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text("Tap a duration to log", color = Muted, fontSize = 12.sp)
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(topicsBySubject[selectedSubject].orEmpty()) { topic ->
-                TopicCard(topic = topic, subject = selectedSubject, tapCounts = tapCounts, onAddStudy = onAddStudy)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopicCard(
-    topic: String,
-    subject: String,
-    tapCounts: Map<String, Int>,
-    onAddStudy: (String, String, Int) -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(topic, color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                DurationButton("Low", "30 min", 30, subject, topic, Teal, tapCounts[studyTapKey(subject, topic, 30)] ?: 0, onAddStudy, Modifier.weight(1f))
-                DurationButton("Medium", "1 hr", 60, subject, topic, Blue, tapCounts[studyTapKey(subject, topic, 60)] ?: 0, onAddStudy, Modifier.weight(1f))
-                DurationButton("High", "2 hr+", 120, subject, topic, Lilac, tapCounts[studyTapKey(subject, topic, 120)] ?: 0, onAddStudy, Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun DurationButton(
-    label: String,
-    duration: String,
-    minutes: Int,
-    subject: String,
-    topic: String,
-    accent: Color,
-    clickCount: Int,
-    onAddStudy: (String, String, Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Button(
-        onClick = { onAddStudy(subject, topic, minutes) },
-        modifier = modifier.height(48.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = .10f), contentColor = accent)
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                if (clickCount > 0) {
-                    Box(
-                        Modifier.size(17.dp).clip(CircleShape).background(accent),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(clickCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            Text(duration, fontSize = 9.sp, maxLines = 1)
-        }
-    }
-}
-
-@Composable
 private fun WalletScreen(
     logs: List<StudyLog>,
     usageHistory: Map<String, Map<String, Int>>,
-    bookings: List<TeacherBooking>,
     modifier: Modifier = Modifier
 ) {
-    val total = logs.sumOf { it.reward } -
-        usageHistory.totalSocialMinutes() -
-        bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE
+    val total = logs.sumOf { it.reward } - usageHistory.totalSocialMinutes()
     val logsByDay = logs.sortedByDescending { it.timestamp }.groupBy { dayKey(it.timestamp) }
-    val bookingsByDay = bookings.filter { it.accepted }.groupBy { dayKey(it.timestamp) }
-    val days = (logsByDay.keys + usageHistory.keys + bookingsByDay.keys).distinct().sortedDescending()
+    val days = (logsByDay.keys + usageHistory.keys).distinct().sortedDescending()
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -964,7 +1320,7 @@ private fun WalletScreen(
                 Text("TOTAL BALANCE", color = Color.White.copy(alpha = .7f), fontSize = 12.sp, letterSpacing = 1.sp)
                 Text(formatMoney(total), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    "${formatMoney(logs.sumOf { it.reward })} study − ${formatMoney(usageHistory.totalSocialMinutes().toDouble())} social − ${formatMoney((bookings.count { it.accepted } * TEACHER_SESSION_PRICE).toDouble())} sessions",
+                    "${formatMoney(logs.sumOf { it.reward })} study earnings − ${formatMoney(usageHistory.totalSocialMinutes().toDouble())} social deductions",
                     color = Color.White.copy(alpha = .7f),
                     fontSize = 12.sp
                 )
@@ -991,9 +1347,7 @@ private fun WalletScreen(
                 days.forEach { day ->
                     val dayLogs = logsByDay[day].orEmpty()
                     val socialMinutes = usageHistory[day].orEmpty().values.sum()
-                    val dayBookings = bookingsByDay[day].orEmpty()
-                    val bookingTotal = dayBookings.size * TEACHER_SESSION_PRICE
-                    val dayNet = dayLogs.sumOf { it.reward } - socialMinutes - bookingTotal
+                    val dayNet = dayLogs.sumOf { it.reward } - socialMinutes
                     item(key = "header-$day") {
                         Column(
                             Modifier.fillMaxWidth().padding(top = 5.dp),
@@ -1009,7 +1363,7 @@ private fun WalletScreen(
                                 )
                             }
                             Text(
-                                "Study +${formatMoney(dayLogs.sumOf { it.reward })}  •  Social −${formatMoney(socialMinutes.toDouble())}  •  Sessions −${formatMoney(bookingTotal.toDouble())}",
+                                "Study +${formatMoney(dayLogs.sumOf { it.reward })}  •  Social −${formatMoney(socialMinutes.toDouble())}",
                                 color = Muted,
                                 fontSize = 11.sp
                             )
@@ -1022,9 +1376,6 @@ private fun WalletScreen(
                         item(key = "social-$day") {
                             SocialDeductionEntry(socialMinutes)
                         }
-                    }
-                    items(dayBookings, key = { "booking-${it.id}" }) { booking ->
-                        TeacherBookingEntry(booking)
                     }
                 }
             }
@@ -1057,35 +1408,6 @@ private fun SocialDeductionEntry(minutes: Int) {
 }
 
 @Composable
-private fun TeacherBookingEntry(booking: TeacherBooking) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFFE8ECFF)),
-                contentAlignment = Alignment.Center
-            ) {
-                androidx.compose.material3.Icon(Icons.Default.School, null, tint = Blue, modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Session with ${booking.teacherName}", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Text("${booking.subject} • ${timeLabel(booking.timestamp)}", color = Muted, fontSize = 11.sp)
-            }
-            Text(
-                if (booking.accepted) "−${formatMoney(TEACHER_SESSION_PRICE.toDouble())}" else "Declined",
-                color = if (booking.accepted) Color(0xFFD94B55) else Muted,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-@Composable
 private fun WalletEntry(log: StudyLog) {
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1103,7 +1425,7 @@ private fun WalletEntry(log: StudyLog) {
 }
 
 private object StudyLogStore {
-    private const val PREFS = "shiksha_pulse"
+    private const val PREFS = PREFS_NAME
     private const val LOGS = "study_logs"
 
     fun load(context: Context): List<StudyLog> {
@@ -1119,7 +1441,11 @@ private object StudyLogStore {
                         topic = item.optString("topic"),
                         minutes = item.optInt("minutes"),
                         reward = item.optDouble("reward"),
-                        timestamp = item.optLong("timestamp")
+                        timestamp = item.optLong("timestamp"),
+                        startedAt = item.optLong(
+                            "startedAt",
+                            item.optLong("timestamp") - item.optInt("minutes") * 60_000L
+                        )
                     )
                 )
             }
@@ -1137,6 +1463,7 @@ private object StudyLogStore {
                     .put("minutes", log.minutes)
                     .put("reward", log.reward)
                     .put("timestamp", log.timestamp)
+                    .put("startedAt", log.startedAt)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -1146,8 +1473,42 @@ private object StudyLogStore {
     }
 }
 
+private object ActiveStudySessionStore {
+    private const val ACTIVE_SESSION = "active_study_session"
+
+    fun load(context: Context): ActiveStudySession? {
+        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(ACTIVE_SESSION, null) ?: return null
+        val item = JSONObject(raw)
+        return ActiveStudySession(
+            id = item.optString("id"),
+            subject = item.optString("subject"),
+            topic = item.optString("topic"),
+            startedAt = item.optLong("startedAt")
+        )
+    }
+
+    fun save(context: Context, session: ActiveStudySession?) {
+        val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+        if (session == null) {
+            editor.remove(ACTIVE_SESSION)
+        } else {
+            editor.putString(
+                ACTIVE_SESSION,
+                JSONObject()
+                    .put("id", session.id)
+                    .put("subject", session.subject)
+                    .put("topic", session.topic)
+                    .put("startedAt", session.startedAt)
+                    .toString()
+            )
+        }
+        editor.apply()
+    }
+}
+
 private object UsageHistoryStore {
-    private const val PREFS = "shiksha_pulse"
+    private const val PREFS = PREFS_NAME
     private const val USAGE_HISTORY = "social_usage_history"
 
     fun load(context: Context): Map<String, Map<String, Int>> {
@@ -1186,7 +1547,7 @@ private object UsageHistoryStore {
 }
 
 private object SocialUsageEventStore {
-    private const val PREFS = "shiksha_pulse"
+    private const val PREFS = PREFS_NAME
     private const val USAGE_EVENTS = "social_usage_events"
 
     fun load(context: Context): List<SocialUsageEvent> {
@@ -1231,7 +1592,7 @@ private object SocialUsageEventStore {
 }
 
 private object TeacherBookingStore {
-    private const val PREFS = "shiksha_pulse"
+    private const val PREFS = PREFS_NAME
     private const val BOOKINGS = "teacher_bookings"
 
     fun load(context: Context): List<TeacherBooking> {
@@ -1273,35 +1634,8 @@ private object TeacherBookingStore {
     }
 }
 
-private object StudyTapStore {
-    private const val PREFS = "shiksha_pulse"
-    private const val TAP_COUNTS = "study_tap_counts"
-
-    fun load(context: Context): Map<String, Int> {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(TAP_COUNTS, "{}") ?: "{}"
-        val json = JSONObject(raw)
-        return buildMap {
-            val keys = json.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                put(key, json.optInt(key).coerceAtLeast(0))
-            }
-        }
-    }
-
-    fun save(context: Context, counts: Map<String, Int>) {
-        val json = JSONObject()
-        counts.forEach { (key, count) -> json.put(key, count) }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(TAP_COUNTS, json.toString())
-            .apply()
-    }
-}
-
 private object StudentProfileStore {
-    private const val PREFS = "shiksha_pulse"
+    private const val PREFS = PREFS_NAME
     private const val STUDENT_NAME = "student_name"
 
     fun load(context: Context): String =
@@ -1345,9 +1679,6 @@ private fun readSocialUsage(context: Context): UsageSnapshot {
 private fun Map<String, Map<String, Int>>.totalSocialMinutes(): Int =
     values.sumOf { dailyUsage -> dailyUsage.values.sum() }
 
-private fun studyTapKey(subject: String, topic: String, minutes: Int): String =
-    "$subject|$topic|$minutes"
-
 private fun monthStudyMinutes(logs: List<StudyLog>): Int {
     val now = Calendar.getInstance()
     val monthStart = now.apply {
@@ -1375,6 +1706,26 @@ private fun dayLabel(key: String): String {
 
 private fun timeLabel(timestamp: Long): String =
     SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp))
+
+private fun hourLabel(hourOfDay: Int): String =
+    SimpleDateFormat("h a", Locale.getDefault()).format(
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, hourOfDay)
+            set(Calendar.MINUTE, 0)
+        }.time
+    )
+
+private fun formatElapsed(milliseconds: Long): String {
+    val totalSeconds = milliseconds / 1_000
+    val hours = totalSeconds / 3_600
+    val minutes = (totalSeconds % 3_600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+}
 
 private fun formatDuration(minutes: Int): String {
     val hours = minutes / 60

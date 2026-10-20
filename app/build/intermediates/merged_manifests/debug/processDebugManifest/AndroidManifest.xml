@@ -12,12 +12,9 @@
 
     <queries>
         <package android:name="com.instagram.android" />
-        <package android:name="com.facebook.katana" />
-        <package android:name="com.zhiliaoapp.musically" />
         <package android:name="com.google.android.youtube" />
         <package android:name="com.snapchat.android" />
-        <package android:name="com.twitter.android" />
-        <package android:name="com.reddit.frontpage" />
+        <package android:name="com.whatsapp" />
     </queries>
 
     <permission
@@ -33,7 +30,6 @@
         android:extractNativeLibs="false"
         android:label="Shiksha Pulse"
         android:supportsRtl="true"
-        android:testOnly="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar" >
         <activity
             android:name="com.shikshapulse.app.MainActivity"
@@ -44,6 +40,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name="com.shikshapulse.app.ReelTrackingAccessibilityService"
+            android:description="@string/reel_tracker_accessibility_description"
+            android:exported="true"
+            android:label="Shiksha Pulse Reel tracker"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" >
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/reel_tracker_accessibility_service" />
+        </service>
+
         <activity
             android:name="androidx.compose.ui.tooling.PreviewActivity"
             android:exported="true" />

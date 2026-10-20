@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-28:12
-INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-28:12
-INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-28:12
-INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-28:12
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-38:12
+INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-38:12
+INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-38:12
+INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:1:1-38:12
 MERGED from [androidx.compose.material3:material3-android:1.3.1] /Users/archaudhary/.gradle/caches/8.9/transforms/b1d196674fcf86ebe35485f15500c334/transformed/material3-release/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.compose.material:material-android:1.7.6] /Users/archaudhary/.gradle/caches/8.9/transforms/725262025e1cc133389b7983e16c4140/transformed/material-release/AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.compose.animation:animation-core-android:1.7.6] /Users/archaudhary/.gradle/caches/8.9/transforms/e51e340dd4735305a888050baafbb66a/transformed/animation-core-release/AndroidManifest.xml:2:1-7:12
@@ -63,38 +63,26 @@ ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifes
 	android:name
 		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:2:22-75
 queries
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:4:5-12:15
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:4:5-9:15
 package#com.instagram.android
 ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:5:9-57
 	android:name
 		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:5:18-54
-package#com.facebook.katana
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:6:9-55
-	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:6:18-52
-package#com.zhiliaoapp.musically
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:7:9-60
-	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:7:18-57
 package#com.google.android.youtube
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:8:9-62
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:6:9-62
 	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:8:18-59
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:6:18-59
 package#com.snapchat.android
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:9:9-56
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:7:9-56
 	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:9:18-53
-package#com.twitter.android
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:10:9-55
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:7:18-53
+package#com.whatsapp
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:8:9-48
 	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:10:18-52
-package#com.reddit.frontpage
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:11:9-56
-	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:11:18-53
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:8:18-45
 application
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:14:5-27:19
-INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:14:5-27:19
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:11:5-37:19
+INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:11:5-37:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.7.6] /Users/archaudhary/.gradle/caches/8.9/transforms/d4ab53c4d80d63d68ee160d2eeb8ddc0/transformed/ui-tooling-release/AndroidManifest.xml:22:5-26:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.7.6] /Users/archaudhary/.gradle/caches/8.9/transforms/d4ab53c4d80d63d68ee160d2eeb8ddc0/transformed/ui-tooling-release/AndroidManifest.xml:22:5-26:19
 MERGED from [androidx.emoji2:emoji2:1.3.0] /Users/archaudhary/.gradle/caches/8.9/transforms/e9a4de5f87829d8e56de87ff35dfed60/transformed/emoji2-1.3.0/AndroidManifest.xml:23:5-33:19
@@ -114,29 +102,53 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /Users/arch
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.1] /Users/archaudhary/.gradle/caches/8.9/transforms/3f4414e7258e46b34c51e68305e2ec6f/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:17:9-35
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:14:9-35
 	android:label
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:16:9-38
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:13:9-38
 	android:allowBackup
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:15:9-35
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:12:9-35
 	android:theme
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:18:9-72
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:15:9-72
 activity#com.shikshapulse.app.MainActivity
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:19:9-26:20
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:16:9-23:20
 	android:exported
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:21:13-36
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:18:13-36
 	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:20:13-41
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:17:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:22:13-25:29
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:19:13-22:29
 action#android.intent.action.MAIN
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:23:17-69
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:20:17-69
 	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:23:25-66
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:20:25-66
 category#android.intent.category.LAUNCHER
-ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:24:17-77
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:21:17-77
 	android:name
-		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:24:27-74
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:21:27-74
+service#com.shikshapulse.app.ReelTrackingAccessibilityService
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:24:9-36:19
+	android:label
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:28:13-55
+	android:exported
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:27:13-36
+	android:permission
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:29:13-79
+	android:description
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:26:13-81
+	android:name
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:25:13-61
+intent-filter#action:name:android.accessibilityservice.AccessibilityService
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:30:13-32:29
+action#android.accessibilityservice.AccessibilityService
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:31:17-92
+	android:name
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:31:25-89
+meta-data#android.accessibilityservice
+ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:33:13-35:78
+	android:resource
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:35:17-75
+	android:name
+		ADDED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml:34:17-60
 uses-sdk
 INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /Users/archaudhary/projects/Shiksha Pulse/app/src/main/AndroidManifest.xml
