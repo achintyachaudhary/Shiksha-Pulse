@@ -32,10 +32,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreTime
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -47,8 +54,10 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +78,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.random.Random
 
 private val Ink = Color(0xFF18233D)
 private val Muted = Color(0xFF7C879D)
@@ -77,6 +87,7 @@ private val Blue = Color(0xFF5575F7)
 private val Teal = Color(0xFF20A990)
 private val Amber = Color(0xFFFFB547)
 private val Lilac = Color(0xFF8C6BE8)
+private const val TEACHER_SESSION_PRICE = 100
 
 private val topicsBySubject = mapOf(
     "Physics" to listOf(
@@ -114,31 +125,101 @@ private data class StudyLog(
     val timestamp: Long
 )
 
-private data class AppUsage(val name: String, val minutes: Int)
+private data class Teacher(
+    val name: String,
+    val subject: String,
+    val available: Boolean
+)
+
+private val teachers = listOf(
+    Teacher("Ashu Gupta", "Physics • NEET & JEE", true),
+    Teacher("Aman Katiyar", "Mathematics • JEE", true),
+    Teacher("Priya Thakur", "Biology • NEET", false),
+    Teacher("Amisha Shukla", "Chemistry • NEET & JEE", true)
+)
+
+private data class TeacherBooking(
+    val id: String,
+    val teacherName: String,
+    val subject: String,
+    val accepted: Boolean,
+    val timestamp: Long
+)
+
+private data class SocialUsageEvent(
+    val id: String,
+    val date: String,
+    val packageName: String,
+    val appName: String,
+    val minutes: Int,
+    val timestamp: Long
+)
+
+private data class TimelineEntry(
+    val title: String,
+    val detail: String,
+    val timestamp: Long,
+    val icon: ImageVector,
+    val color: Color
+)
+
+private data class AppUsage(val packageName: String, val name: String, val minutes: Int)
 private data class UsageSnapshot(val hasAccess: Boolean, val apps: List<AppUsage>) {
     val totalMinutes: Int get() = apps.sumOf { it.minutes }
 }
 
+private data class SocialApp(
+    val packageName: String,
+    val name: String,
+    val icon: ImageVector,
+    val color: Color
+)
+
+private val trackedSocialApps = listOf(
+    SocialApp("com.instagram.android", "Instagram", Icons.Default.PhotoCamera, Color(0xFFE1306C)),
+    SocialApp("com.google.android.youtube", "YouTube", Icons.Default.SmartDisplay, Color(0xFFFF0000)),
+    SocialApp("com.snapchat.android", "Snapchat", Icons.Default.Face, Color(0xFFB3A400)),
+    SocialApp("com.whatsapp", "WhatsApp", Icons.Default.Call, Color(0xFF25A65A))
+)
+
 private enum class AppTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
     STUDY("Study", Icons.Default.MenuBook),
+    TEACHERS("Teachers", Icons.Default.School),
     WALLET("Wallet", Icons.Default.AccountBalanceWallet)
 }
 
 class MainActivity : ComponentActivity() {
     private var usageSnapshot by mutableStateOf(UsageSnapshot(false, emptyList()))
     private var logs by mutableStateOf<List<StudyLog>>(emptyList())
+    private var usageHistory by mutableStateOf<Map<String, Map<String, Int>>>(emptyMap())
+    private var usageEvents by mutableStateOf<List<SocialUsageEvent>>(emptyList())
+    private var bookings by mutableStateOf<List<TeacherBooking>>(emptyList())
+    private var tapCounts by mutableStateOf<Map<String, Int>>(emptyMap())
+    private var studentName by mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         logs = StudyLogStore.load(this)
+        usageHistory = UsageHistoryStore.load(this)
+        usageEvents = SocialUsageEventStore.load(this)
+        bookings = TeacherBookingStore.load(this)
+        tapCounts = StudyTapStore.load(this)
+        studentName = StudentProfileStore.load(this)
         refreshUsage()
         setContent {
             ShikshaPulseApp(
                 logs = logs,
                 usage = usageSnapshot,
+                usageHistory = usageHistory,
+                usageEvents = usageEvents,
+                bookings = bookings,
+                tapCounts = tapCounts,
+                studentName = studentName,
                 onAddStudy = ::addStudy,
-                onRequestUsageAccess = ::openUsageAccessSettings
+                onBookTeacher = ::bookTeacher,
+                onRequestUsageAccess = ::openUsageAccessSettings,
+                onSaveName = ::saveStudentName
             )
         }
     }
@@ -149,6 +230,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addStudy(subject: String, topic: String, minutes: Int) {
+        val tapKey = studyTapKey(subject, topic, minutes)
+        tapCounts = tapCounts + (tapKey to ((tapCounts[tapKey] ?: 0) + 1))
+        StudyTapStore.save(this, tapCounts)
+
         val factor = if (!usageSnapshot.hasAccess) {
             1.0
         } else {
@@ -165,12 +250,58 @@ class MainActivity : ComponentActivity() {
         StudyLogStore.save(this, logs)
     }
 
+    private fun saveStudentName(name: String) {
+        studentName = name.trim().ifEmpty { "Student" }
+        StudentProfileStore.save(this, studentName)
+    }
+
+    private fun bookTeacher(teacher: Teacher) {
+        val hasEnoughBalance = logs.sumOf { it.reward } -
+            usageHistory.totalSocialMinutes() -
+            bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE >= TEACHER_SESSION_PRICE
+        if (!hasEnoughBalance) return
+
+        val accepted = teacher.available && bookings.none { it.accepted && it.teacherName == teacher.name }
+        val booking = TeacherBooking(
+            id = UUID.randomUUID().toString(),
+            teacherName = teacher.name,
+            subject = teacher.subject,
+            accepted = accepted,
+            timestamp = System.currentTimeMillis()
+        )
+        bookings = listOf(booking) + bookings
+        TeacherBookingStore.save(this, bookings)
+    }
+
     private fun openUsageAccessSettings() {
         startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 
     private fun refreshUsage() {
         usageSnapshot = readSocialUsage(this)
+        if (usageSnapshot.hasAccess) {
+            val today = dayKey(System.currentTimeMillis())
+            val previous = usageHistory[today].orEmpty()
+            val current = usageSnapshot.apps.associate { it.packageName to it.minutes }
+            val now = System.currentTimeMillis()
+            val newEvents = usageSnapshot.apps.mapNotNull { app ->
+                val elapsed = (app.minutes - (previous[app.packageName] ?: 0)).coerceAtLeast(0)
+                if (elapsed == 0) null else SocialUsageEvent(
+                    id = UUID.randomUUID().toString(),
+                    date = today,
+                    packageName = app.packageName,
+                    appName = app.name,
+                    minutes = elapsed,
+                    timestamp = now
+                )
+            }
+            if (newEvents.isNotEmpty()) {
+                usageEvents = newEvents + usageEvents
+                SocialUsageEventStore.save(this, usageEvents)
+            }
+            usageHistory = usageHistory + (today to current)
+            UsageHistoryStore.save(this, usageHistory)
+        }
     }
 }
 
@@ -178,10 +309,27 @@ class MainActivity : ComponentActivity() {
 private fun ShikshaPulseApp(
     logs: List<StudyLog>,
     usage: UsageSnapshot,
+    usageHistory: Map<String, Map<String, Int>>,
+    usageEvents: List<SocialUsageEvent>,
+    bookings: List<TeacherBooking>,
+    tapCounts: Map<String, Int>,
+    studentName: String,
     onAddStudy: (String, String, Int) -> Unit,
-    onRequestUsageAccess: () -> Unit
+    onBookTeacher: (Teacher) -> Unit,
+    onRequestUsageAccess: () -> Unit,
+    onSaveName: (String) -> Unit
 ) {
     var selectedTab by androidx.compose.runtime.remember { mutableStateOf(AppTab.HOME) }
+    var nameDraft by androidx.compose.runtime.remember { mutableStateOf("") }
+    val greeting = androidx.compose.runtime.remember(studentName) {
+        listOf(
+            "You’re doing great today!",
+            "Ready to make today count?",
+            "A little progress goes a long way!",
+            "Keep that brilliant momentum going!",
+            "One focused session at a time!"
+        ).random(Random(System.currentTimeMillis()))
+    }
     MaterialTheme(
         colorScheme = androidx.compose.material3.lightColorScheme(
             primary = Blue,
@@ -217,16 +365,53 @@ private fun ShikshaPulseApp(
                 AppTab.HOME -> DashboardScreen(
                     logs = logs,
                     usage = usage,
+                    usageHistory = usageHistory,
+                    usageEvents = usageEvents,
+                    bookings = bookings,
+                    studentName = studentName,
+                    greeting = greeting,
                     onRequestUsageAccess = onRequestUsageAccess,
                     modifier = Modifier.padding(insets)
                 )
                 AppTab.STUDY -> StudyScreen(
+                    tapCounts = tapCounts,
                     onAddStudy = onAddStudy,
                     modifier = Modifier.padding(insets)
                 )
-                AppTab.WALLET -> WalletScreen(logs, Modifier.padding(insets))
+                AppTab.TEACHERS -> TeachersScreen(
+                    bookings = bookings,
+                    balance = logs.sumOf { it.reward } -
+                        usageHistory.totalSocialMinutes() -
+                        bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE,
+                    onBookTeacher = onBookTeacher,
+                    modifier = Modifier.padding(insets)
+                )
+                AppTab.WALLET -> WalletScreen(logs, usageHistory, bookings, Modifier.padding(insets))
             }
         }
+    }
+    if (studentName.isBlank()) {
+        AlertDialog(
+            onDismissRequest = { onSaveName("Student") },
+            title = { Text("Welcome to Shiksha Pulse") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("What should we call you?")
+                    OutlinedTextField(
+                        value = nameDraft,
+                        onValueChange = { nameDraft = it },
+                        singleLine = true,
+                        placeholder = { Text("Your name") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { onSaveName(nameDraft) }) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { onSaveName("Student") }) { Text("Skip") }
+            }
+        )
     }
 }
 
@@ -234,12 +419,20 @@ private fun ShikshaPulseApp(
 private fun DashboardScreen(
     logs: List<StudyLog>,
     usage: UsageSnapshot,
+    usageHistory: Map<String, Map<String, Int>>,
+    usageEvents: List<SocialUsageEvent>,
+    bookings: List<TeacherBooking>,
+    studentName: String,
+    greeting: String,
     onRequestUsageAccess: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val todayLogs = logs.filter { isToday(it.timestamp) }
     val todayMinutes = todayLogs.sumOf { it.minutes }
-    val todayReward = todayLogs.sumOf { it.reward }
+    val todaySocialMinutes = usage.totalMinutes
+    val netBalance = logs.sumOf { it.reward } -
+        usageHistory.totalSocialMinutes() -
+        bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -248,7 +441,7 @@ private fun DashboardScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("SHIKSHA PULSE", color = Blue, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.4.sp)
-                Text("Your daily pulse", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+                Text("Hi $studentName,", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
             }
             Box(
                 Modifier.size(44.dp).clip(CircleShape).background(Color(0xFFE8ECFF)),
@@ -257,7 +450,7 @@ private fun DashboardScreen(
                 Text("SP", color = Blue, fontWeight = FontWeight.Bold)
             }
         }
-        Text("Small steps today. Big results tomorrow.", color = Muted, fontSize = 14.sp)
+        Text(greeting, color = Muted, fontSize = 14.sp)
 
         Card(
             shape = RoundedCornerShape(24.dp),
@@ -289,19 +482,19 @@ private fun DashboardScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricCard(
-                title = "Social media",
-                value = if (usage.hasAccess) formatDuration(usage.totalMinutes) else "Not linked",
-                caption = if (usage.hasAccess) "across tracked apps today" else "connect to see your time",
-                icon = Icons.Default.MoreTime,
-                accent = Lilac,
+                title = "Wallet balance",
+                value = formatMoney(netBalance),
+                caption = "after social and session costs",
+                icon = Icons.Default.AccountBalanceWallet,
+                accent = Teal,
                 modifier = Modifier.weight(1f)
             )
             MetricCard(
-                title = "Earned today",
-                value = formatMoney(todayReward),
-                caption = "added to your wallet",
-                icon = Icons.Default.Bolt,
-                accent = Amber,
+                title = "Social spend today",
+                value = if (usage.hasAccess) formatMoney(todaySocialMinutes.toDouble()) else "Not linked",
+                caption = if (usage.hasAccess) "₹1 per tracked minute" else "connect to track and deduct",
+                icon = Icons.Default.MoreTime,
+                accent = Lilac,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -314,9 +507,9 @@ private fun DashboardScreen(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Social media check-in", fontWeight = FontWeight.Bold, color = Ink, fontSize = 16.sp)
+                        Text("App time & wallet deductions", fontWeight = FontWeight.Bold, color = Ink, fontSize = 16.sp)
                         Text(
-                            if (usage.hasAccess) "Usage updates from your phone" else "Allow Usage Access to track app time",
+                            if (usage.hasAccess) "₹1 is deducted for every minute used" else "Allow Usage Access to track app time",
                             color = Muted,
                             fontSize = 12.sp
                         )
@@ -327,20 +520,20 @@ private fun DashboardScreen(
                         }
                     }
                 }
-                if (usage.hasAccess && usage.apps.isNotEmpty()) {
-                    usage.apps.sortedByDescending { it.minutes }.take(4).forEach { app ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(app.name, color = Ink, fontSize = 13.sp)
-                            Text(formatDuration(app.minutes), color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                } else if (usage.hasAccess) {
-                    Text("No tracked social-app time yet today.", color = Muted, fontSize = 13.sp)
-                } else {
-                    Text("Only app usage totals are read on this device.", color = Muted, fontSize = 12.sp)
+                trackedSocialApps.forEach { spec ->
+                    val appUsage = usage.apps.firstOrNull { it.packageName == spec.packageName }
+                    SocialUsageRow(
+                        app = spec,
+                        minutes = appUsage?.minutes ?: 0,
+                        hasAccess = usage.hasAccess
+                    )
                 }
             }
         }
+
+        TimelineCard(logs = logs, usageEvents = usageEvents, bookings = bookings)
+
+        LeaderboardCard(logs = logs, studentName = studentName)
 
         Card(
             shape = RoundedCornerShape(20.dp),
@@ -352,11 +545,272 @@ private fun DashboardScreen(
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text("Your focus earns rewards", color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("₹5 per study hour, plus a balance bonus for lower social time.", color = Muted, fontSize = 12.sp)
+                    Text("₹5 per study hour; social apps deduct ₹1 per minute.", color = Muted, fontSize = 12.sp)
                 }
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun TimelineCard(
+    logs: List<StudyLog>,
+    usageEvents: List<SocialUsageEvent>,
+    bookings: List<TeacherBooking>
+) {
+    val today = dayKey(System.currentTimeMillis())
+    val entries = buildList {
+        logs.filter { isToday(it.timestamp) }.forEach { log ->
+            add(
+                TimelineEntry(
+                    title = "Studied ${log.topic}",
+                    detail = "${log.subject} • ${formatDuration(log.minutes)}",
+                    timestamp = log.timestamp,
+                    icon = Icons.Default.MenuBook,
+                    color = Blue
+                )
+            )
+        }
+        usageEvents.filter { it.date == today }.forEach { event ->
+            add(
+                TimelineEntry(
+                    title = "${event.appName} used",
+                    detail = "${formatDuration(event.minutes)} app time • Reels aren’t tracked separately",
+                    timestamp = event.timestamp,
+                    icon = trackedSocialApps.firstOrNull { it.packageName == event.packageName }?.icon
+                        ?: Icons.Default.MoreTime,
+                    color = trackedSocialApps.firstOrNull { it.packageName == event.packageName }?.color
+                        ?: Lilac
+                )
+            )
+        }
+        bookings.filter { isToday(it.timestamp) }.forEach { booking ->
+            add(
+                TimelineEntry(
+                    title = if (booking.accepted) "Session booked with ${booking.teacherName}" else "Request declined by ${booking.teacherName}",
+                    detail = if (booking.accepted) "₹$TEACHER_SESSION_PRICE • ${booking.subject}" else "Teacher unavailable • No charge",
+                    timestamp = booking.timestamp,
+                    icon = Icons.Default.School,
+                    color = if (booking.accepted) Teal else Color(0xFFD94B55)
+                )
+            )
+        }
+    }.sortedByDescending { it.timestamp }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Today's timeline", color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Your study sessions and app activity", color = Muted, fontSize = 11.sp)
+                }
+                androidx.compose.material3.Icon(Icons.Default.Schedule, null, tint = Blue)
+            }
+            if (entries.isEmpty()) {
+                Text("Your activity will show up here as you go.", color = Muted, fontSize = 12.sp)
+            } else {
+                entries.take(12).forEach { entry ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier.size(34.dp).clip(CircleShape).background(entry.color.copy(alpha = .12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.material3.Icon(entry.icon, null, tint = entry.color, modifier = Modifier.size(17.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.title, color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text(entry.detail, color = Muted, fontSize = 10.sp)
+                        }
+                        Text(timeLabel(entry.timestamp), color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeachersScreen(
+    bookings: List<TeacherBooking>,
+    balance: Double,
+    onBookTeacher: (Teacher) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val canAfford = balance >= TEACHER_SESSION_PRICE
+    Column(
+        modifier = modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Spacer(Modifier.height(8.dp))
+        Text("Book a teacher", color = Ink, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+        Text("Request a one-to-one session with a teacher.", color = Muted, fontSize = 14.sp)
+        Text("Demo availability: available requests are accepted; busy requests are declined.", color = Muted, fontSize = 12.sp)
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Your wallet balance", color = Muted, fontSize = 12.sp)
+                    Text(formatMoney(balance), color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+                Text("Session ₹$TEACHER_SESSION_PRICE", color = Blue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+        if (!canAfford) {
+            Text("You need at least ₹$TEACHER_SESSION_PRICE in your wallet to request a session.", color = Color(0xFFD94B55), fontSize = 12.sp)
+        }
+        Text("TEACHERS", color = Muted, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(teachers) { teacher ->
+                val alreadyBooked = bookings.any { it.accepted && it.teacherName == teacher.name }
+                val available = teacher.available && !alreadyBooked
+                TeacherCard(
+                    teacher = teacher,
+                    available = available,
+                    canAfford = canAfford,
+                    onBook = { onBookTeacher(teacher) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeacherCard(
+    teacher: Teacher,
+    available: Boolean,
+    canAfford: Boolean,
+    onBook: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape).background(Color(0xFFE8ECFF)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(teacher.name.split(" ").mapNotNull { it.firstOrNull() }.joinToString(""), color = Blue, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(teacher.name, color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(teacher.subject, color = Muted, fontSize = 11.sp)
+                }
+                Text(
+                    if (available) "Available" else "Busy",
+                    color = if (available) Teal else Color(0xFFD94B55),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp
+                )
+            }
+            Button(
+                onClick = onBook,
+                enabled = canAfford,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    when {
+                        !canAfford -> "Need ₹$TEACHER_SESSION_PRICE to request"
+                        available -> "Request session • ₹$TEACHER_SESSION_PRICE if accepted"
+                        else -> "Request while busy • no charge if declined"
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SocialUsageRow(app: SocialApp, minutes: Int, hasAccess: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(34.dp).clip(CircleShape).background(app.color.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.material3.Icon(app.icon, contentDescription = app.name, tint = app.color, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(app.name, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        if (!hasAccess) {
+            Text("—", color = Muted, fontSize = 13.sp)
+        } else {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(formatDuration(minutes), color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("-${formatMoney(minutes.toDouble())}", color = Color(0xFFD94B55), fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardCard(logs: List<StudyLog>, studentName: String) {
+    val currentMonthMinutes = monthStudyMinutes(logs)
+    val rankings = listOf(
+        "Aarav Sharma" to 2_520,
+        "Ananya Patel" to 2_340,
+        "Ishaan Verma" to 2_160,
+        "Diya Nair" to 1_980,
+        "Kabir Singh" to 1_800,
+        studentName to currentMonthMinutes
+    ).sortedByDescending { it.second }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Monthly leaderboard", color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Sample students • this month’s study time", color = Muted, fontSize = 11.sp)
+                }
+                androidx.compose.material3.Icon(Icons.Default.AutoGraph, null, tint = Blue)
+            }
+            rankings.forEachIndexed { index, (name, minutes) ->
+                val isCurrentStudent = name == studentName
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isCurrentStudent) Color(0xFFEAF0FF) else Color.Transparent)
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("#${index + 1}", color = Blue, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(30.dp))
+                    Text(
+                        if (isCurrentStudent) "$name (you)" else name,
+                        color = Ink,
+                        fontWeight = if (isCurrentStudent) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(formatDuration(minutes), color = Muted, fontSize = 11.sp)
+                }
+            }
+        }
     }
 }
 
@@ -385,6 +839,7 @@ private fun MetricCard(
 
 @Composable
 private fun StudyScreen(
+    tapCounts: Map<String, Int>,
     onAddStudy: (String, String, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -415,14 +870,19 @@ private fun StudyScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(topicsBySubject[selectedSubject].orEmpty()) { topic ->
-                TopicCard(topic = topic, subject = selectedSubject, onAddStudy = onAddStudy)
+                TopicCard(topic = topic, subject = selectedSubject, tapCounts = tapCounts, onAddStudy = onAddStudy)
             }
         }
     }
 }
 
 @Composable
-private fun TopicCard(topic: String, subject: String, onAddStudy: (String, String, Int) -> Unit) {
+private fun TopicCard(
+    topic: String,
+    subject: String,
+    tapCounts: Map<String, Int>,
+    onAddStudy: (String, String, Int) -> Unit
+) {
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -431,9 +891,9 @@ private fun TopicCard(topic: String, subject: String, onAddStudy: (String, Strin
         Column(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(topic, color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                DurationButton("Low", "30 min", 30, subject, topic, Teal, onAddStudy, Modifier.weight(1f))
-                DurationButton("Medium", "1 hr", 60, subject, topic, Blue, onAddStudy, Modifier.weight(1f))
-                DurationButton("High", "2 hr+", 120, subject, topic, Lilac, onAddStudy, Modifier.weight(1f))
+                DurationButton("Low", "30 min", 30, subject, topic, Teal, tapCounts[studyTapKey(subject, topic, 30)] ?: 0, onAddStudy, Modifier.weight(1f))
+                DurationButton("Medium", "1 hr", 60, subject, topic, Blue, tapCounts[studyTapKey(subject, topic, 60)] ?: 0, onAddStudy, Modifier.weight(1f))
+                DurationButton("High", "2 hr+", 120, subject, topic, Lilac, tapCounts[studyTapKey(subject, topic, 120)] ?: 0, onAddStudy, Modifier.weight(1f))
             }
         }
     }
@@ -447,6 +907,7 @@ private fun DurationButton(
     subject: String,
     topic: String,
     accent: Color,
+    clickCount: Int,
     onAddStudy: (String, String, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -458,16 +919,35 @@ private fun DurationButton(
         colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = .10f), contentColor = accent)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                if (clickCount > 0) {
+                    Box(
+                        Modifier.size(17.dp).clip(CircleShape).background(accent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(clickCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
             Text(duration, fontSize = 9.sp, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun WalletScreen(logs: List<StudyLog>, modifier: Modifier = Modifier) {
-    val total = logs.sumOf { it.reward }
-    val groups = logs.sortedByDescending { it.timestamp }.groupBy { dayKey(it.timestamp) }.toList()
+private fun WalletScreen(
+    logs: List<StudyLog>,
+    usageHistory: Map<String, Map<String, Int>>,
+    bookings: List<TeacherBooking>,
+    modifier: Modifier = Modifier
+) {
+    val total = logs.sumOf { it.reward } -
+        usageHistory.totalSocialMinutes() -
+        bookings.filter { it.accepted }.size * TEACHER_SESSION_PRICE
+    val logsByDay = logs.sortedByDescending { it.timestamp }.groupBy { dayKey(it.timestamp) }
+    val bookingsByDay = bookings.filter { it.accepted }.groupBy { dayKey(it.timestamp) }
+    val days = (logsByDay.keys + usageHistory.keys + bookingsByDay.keys).distinct().sortedDescending()
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -481,16 +961,20 @@ private fun WalletScreen(logs: List<StudyLog>, modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("TOTAL EARNED", color = Color.White.copy(alpha = .7f), fontSize = 12.sp, letterSpacing = 1.sp)
+                Text("TOTAL BALANCE", color = Color.White.copy(alpha = .7f), fontSize = 12.sp, letterSpacing = 1.sp)
                 Text(formatMoney(total), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                Text("${logs.size} study sessions logged", color = Color.White.copy(alpha = .7f), fontSize = 13.sp)
+                Text(
+                    "${formatMoney(logs.sumOf { it.reward })} study − ${formatMoney(usageHistory.totalSocialMinutes().toDouble())} social − ${formatMoney((bookings.count { it.accepted } * TEACHER_SESSION_PRICE).toDouble())} sessions",
+                    color = Color.White.copy(alpha = .7f),
+                    fontSize = 12.sp
+                )
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Earning history", color = Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
             Text("Newest first", color = Muted, fontSize = 12.sp)
         }
-        if (groups.isEmpty()) {
+        if (days.isEmpty()) {
             Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Column(Modifier.fillMaxWidth().padding(26.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     androidx.compose.material3.Icon(Icons.Default.AccountBalanceWallet, null, tint = Blue, modifier = Modifier.size(30.dp))
@@ -504,18 +988,99 @@ private fun WalletScreen(logs: List<StudyLog>, modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                groups.forEach { (day, dayLogs) ->
+                days.forEach { day ->
+                    val dayLogs = logsByDay[day].orEmpty()
+                    val socialMinutes = usageHistory[day].orEmpty().values.sum()
+                    val dayBookings = bookingsByDay[day].orEmpty()
+                    val bookingTotal = dayBookings.size * TEACHER_SESSION_PRICE
+                    val dayNet = dayLogs.sumOf { it.reward } - socialMinutes - bookingTotal
                     item(key = "header-$day") {
-                        Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(dayLabel(day), color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            Text(formatMoney(dayLogs.sumOf { it.reward }), color = Teal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Column(
+                            Modifier.fillMaxWidth().padding(top = 5.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(dayLabel(day), color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Text(
+                                    formatMoney(dayNet),
+                                    color = if (dayNet >= 0) Teal else Color(0xFFD94B55),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                            Text(
+                                "Study +${formatMoney(dayLogs.sumOf { it.reward })}  •  Social −${formatMoney(socialMinutes.toDouble())}  •  Sessions −${formatMoney(bookingTotal.toDouble())}",
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
                         }
                     }
                     items(dayLogs, key = { it.id }) { log ->
                         WalletEntry(log)
                     }
+                    if (socialMinutes > 0) {
+                        item(key = "social-$day") {
+                            SocialDeductionEntry(socialMinutes)
+                        }
+                    }
+                    items(dayBookings, key = { "booking-${it.id}" }) { booking ->
+                        TeacherBookingEntry(booking)
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SocialDeductionEntry(minutes: Int) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFFFFECEE)),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.Icon(Icons.Default.MoreTime, null, tint = Color(0xFFD94B55), modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Social app usage", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Text("$minutes minutes • ₹1 per minute", color = Muted, fontSize = 11.sp)
+            }
+            Text("−${formatMoney(minutes.toDouble())}", color = Color(0xFFD94B55), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun TeacherBookingEntry(booking: TeacherBooking) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFFE8ECFF)),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.Icon(Icons.Default.School, null, tint = Blue, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Session with ${booking.teacherName}", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Text("${booking.subject} • ${timeLabel(booking.timestamp)}", color = Muted, fontSize = 11.sp)
+            }
+            Text(
+                if (booking.accepted) "−${formatMoney(TEACHER_SESSION_PRICE.toDouble())}" else "Declined",
+                color = if (booking.accepted) Color(0xFFD94B55) else Muted,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
         }
     }
 }
@@ -581,6 +1146,177 @@ private object StudyLogStore {
     }
 }
 
+private object UsageHistoryStore {
+    private const val PREFS = "shiksha_pulse"
+    private const val USAGE_HISTORY = "social_usage_history"
+
+    fun load(context: Context): Map<String, Map<String, Int>> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(USAGE_HISTORY, "{}") ?: "{}"
+        val root = JSONObject(raw)
+        return buildMap {
+            val dates = root.keys()
+            while (dates.hasNext()) {
+                val date = dates.next()
+                val apps = root.optJSONObject(date) ?: continue
+                val appUsage = buildMap {
+                    val packages = apps.keys()
+                    while (packages.hasNext()) {
+                        val packageName = packages.next()
+                        put(packageName, apps.optInt(packageName).coerceAtLeast(0))
+                    }
+                }
+                put(date, appUsage)
+            }
+        }
+    }
+
+    fun save(context: Context, history: Map<String, Map<String, Int>>) {
+        val root = JSONObject()
+        history.forEach { (date, apps) ->
+            val usage = JSONObject()
+            apps.forEach { (packageName, minutes) -> usage.put(packageName, minutes) }
+            root.put(date, usage)
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(USAGE_HISTORY, root.toString())
+            .apply()
+    }
+}
+
+private object SocialUsageEventStore {
+    private const val PREFS = "shiksha_pulse"
+    private const val USAGE_EVENTS = "social_usage_events"
+
+    fun load(context: Context): List<SocialUsageEvent> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(USAGE_EVENTS, "[]") ?: "[]"
+        val array = JSONArray(raw)
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                add(
+                    SocialUsageEvent(
+                        id = item.optString("id"),
+                        date = item.optString("date"),
+                        packageName = item.optString("packageName"),
+                        appName = item.optString("appName"),
+                        minutes = item.optInt("minutes").coerceAtLeast(0),
+                        timestamp = item.optLong("timestamp")
+                    )
+                )
+            }
+        }
+    }
+
+    fun save(context: Context, events: List<SocialUsageEvent>) {
+        val array = JSONArray()
+        events.forEach { event ->
+            array.put(
+                JSONObject()
+                    .put("id", event.id)
+                    .put("date", event.date)
+                    .put("packageName", event.packageName)
+                    .put("appName", event.appName)
+                    .put("minutes", event.minutes)
+                    .put("timestamp", event.timestamp)
+            )
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(USAGE_EVENTS, array.toString())
+            .apply()
+    }
+}
+
+private object TeacherBookingStore {
+    private const val PREFS = "shiksha_pulse"
+    private const val BOOKINGS = "teacher_bookings"
+
+    fun load(context: Context): List<TeacherBooking> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(BOOKINGS, "[]") ?: "[]"
+        val array = JSONArray(raw)
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                add(
+                    TeacherBooking(
+                        id = item.optString("id"),
+                        teacherName = item.optString("teacherName"),
+                        subject = item.optString("subject"),
+                        accepted = item.optBoolean("accepted"),
+                        timestamp = item.optLong("timestamp")
+                    )
+                )
+            }
+        }
+    }
+
+    fun save(context: Context, bookings: List<TeacherBooking>) {
+        val array = JSONArray()
+        bookings.forEach { booking ->
+            array.put(
+                JSONObject()
+                    .put("id", booking.id)
+                    .put("teacherName", booking.teacherName)
+                    .put("subject", booking.subject)
+                    .put("accepted", booking.accepted)
+                    .put("timestamp", booking.timestamp)
+            )
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(BOOKINGS, array.toString())
+            .apply()
+    }
+}
+
+private object StudyTapStore {
+    private const val PREFS = "shiksha_pulse"
+    private const val TAP_COUNTS = "study_tap_counts"
+
+    fun load(context: Context): Map<String, Int> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(TAP_COUNTS, "{}") ?: "{}"
+        val json = JSONObject(raw)
+        return buildMap {
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                put(key, json.optInt(key).coerceAtLeast(0))
+            }
+        }
+    }
+
+    fun save(context: Context, counts: Map<String, Int>) {
+        val json = JSONObject()
+        counts.forEach { (key, count) -> json.put(key, count) }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(TAP_COUNTS, json.toString())
+            .apply()
+    }
+}
+
+private object StudentProfileStore {
+    private const val PREFS = "shiksha_pulse"
+    private const val STUDENT_NAME = "student_name"
+
+    fun load(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(STUDENT_NAME, "")
+            .orEmpty()
+
+    fun save(context: Context, name: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(STUDENT_NAME, name)
+            .apply()
+    }
+}
+
 private fun readSocialUsage(context: Context): UsageSnapshot {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
     val mode = appOps.checkOpNoThrow(
@@ -599,20 +1335,29 @@ private fun readSocialUsage(context: Context): UsageSnapshot {
     val end = System.currentTimeMillis()
     val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     val usageByPackage = manager.queryAndAggregateUsageStats(start, end)
-    val trackedApps = listOf(
-        "com.instagram.android" to "Instagram",
-        "com.facebook.katana" to "Facebook",
-        "com.zhiliaoapp.musically" to "TikTok",
-        "com.google.android.youtube" to "YouTube",
-        "com.snapchat.android" to "Snapchat",
-        "com.twitter.android" to "X",
-        "com.reddit.frontpage" to "Reddit"
-    )
-    val apps = trackedApps.mapNotNull { (packageName, label) ->
-        val minutes = (usageByPackage[packageName]?.totalTimeInForeground ?: 0L).div(60_000).toInt()
-        if (minutes > 0) AppUsage(label, minutes) else null
+    val apps = trackedSocialApps.map { app ->
+        val minutes = (usageByPackage[app.packageName]?.totalTimeInForeground ?: 0L).div(60_000).toInt()
+        AppUsage(app.packageName, app.name, minutes)
     }
     return UsageSnapshot(true, apps)
+}
+
+private fun Map<String, Map<String, Int>>.totalSocialMinutes(): Int =
+    values.sumOf { dailyUsage -> dailyUsage.values.sum() }
+
+private fun studyTapKey(subject: String, topic: String, minutes: Int): String =
+    "$subject|$topic|$minutes"
+
+private fun monthStudyMinutes(logs: List<StudyLog>): Int {
+    val now = Calendar.getInstance()
+    val monthStart = now.apply {
+        set(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    return logs.filter { it.timestamp >= monthStart }.sumOf { it.minutes }
 }
 
 private fun isToday(timestamp: Long): Boolean = dayKey(timestamp) == dayKey(System.currentTimeMillis())
@@ -641,4 +1386,7 @@ private fun formatDuration(minutes: Int): String {
     }
 }
 
-private fun formatMoney(amount: Double): String = "₹" + String.format(Locale.US, "%.2f", amount)
+private fun formatMoney(amount: Double): String {
+    val sign = if (amount < 0) "−" else ""
+    return sign + "₹" + String.format(Locale.US, "%.2f", kotlin.math.abs(amount))
+}
