@@ -1,4 +1,8 @@
 R_DEF: Internal format may change without notice
 local
+drawable social_instagram
+drawable social_snapchat
+drawable social_whatsapp
+drawable social_youtube
 string reel_tracker_accessibility_description
 xml reel_tracker_accessibility_service

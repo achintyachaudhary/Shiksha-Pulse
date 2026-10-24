@@ -11,6 +11,8 @@ import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -45,6 +47,7 @@ import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MenuBook
@@ -77,13 +80,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -188,7 +202,10 @@ private data class TimelineEntry(
     val detail: String,
     val timestamp: Long,
     val icon: ImageVector,
-    val color: Color
+    val color: Color,
+    val packageName: String? = null,
+    val iconAssetRes: Int? = null,
+    val isStudy: Boolean = false
 )
 
 internal data class ReelTrackingSnapshot(
@@ -270,14 +287,15 @@ private data class SocialApp(
     val packageName: String,
     val name: String,
     val icon: ImageVector,
-    val color: Color
+    val color: Color,
+    val iconAssetRes: Int
 )
 
 private val trackedSocialApps = listOf(
-    SocialApp("com.instagram.android", "Instagram", Icons.Default.PhotoCamera, Color(0xFFE1306C)),
-    SocialApp("com.google.android.youtube", "YouTube", Icons.Default.SmartDisplay, Color(0xFFFF0000)),
-    SocialApp("com.snapchat.android", "Snapchat", Icons.Default.Face, Color(0xFFB3A400)),
-    SocialApp("com.whatsapp", "WhatsApp", Icons.Default.Call, Color(0xFF25A65A))
+    SocialApp("com.instagram.android", "Instagram", Icons.Default.PhotoCamera, Color(0xFFE1306C), R.drawable.social_instagram),
+    SocialApp("com.google.android.youtube", "YouTube", Icons.Default.SmartDisplay, Color(0xFFFF0000), R.drawable.social_youtube),
+    SocialApp("com.snapchat.android", "Snapchat", Icons.Default.Face, Color(0xFFB3A400), R.drawable.social_snapchat),
+    SocialApp("com.whatsapp", "WhatsApp", Icons.Default.Call, Color(0xFF25A65A), R.drawable.social_whatsapp)
 )
 
 private enum class AppTab(val title: String, val icon: ImageVector) {
@@ -327,7 +345,6 @@ class MainActivity : ComponentActivity() {
                 onCancelStudy = ::cancelStudy,
                 onBookTeacher = ::bookTeacher,
                 onToggleReelBlocking = ::toggleReelBlocking,
-                onOpenAccessibilitySettings = ::openAccessibilitySettings,
                 onRequestUsageAccess = ::openUsageAccessSettings,
                 onSaveName = ::saveStudentName
             )
@@ -454,7 +471,6 @@ private fun ShikshaPulseApp(
     onFinishStudy: () -> Unit,
     onCancelStudy: () -> Unit,
     onToggleReelBlocking: () -> Unit,
-    onOpenAccessibilitySettings: () -> Unit,
     onBookTeacher: (Teacher) -> Unit,
     onRequestUsageAccess: () -> Unit,
     onSaveName: (String) -> Unit
@@ -542,10 +558,10 @@ private fun ShikshaPulseApp(
     if (showReelDisclosure) {
         AlertDialog(
             onDismissRequest = { showReelDisclosure = false },
-            title = { Text("Enable Instagram Reel tracking?") },
+            title = { Text("Enable Insta Reel Kill Switch?") },
             text = {
                 Text(
-                    "Android requires the Shiksha Pulse Accessibility Service to detect Reel swipe events. " +
+                    "Android requires the Shiksha Pulse Accessibility Service to detect and block Reels. " +
                         "Android also sends the service accessibility events from other apps so it can remove the blocker when you leave Instagram. " +
                         "It inspects visible view identifiers only in Instagram. Swipe counts are estimates; screen content is not saved or sent. " +
                             "When blocking is on, it attempts one tap on a detected Reel to pause playback before showing the focus screen. " +
@@ -555,7 +571,7 @@ private fun ShikshaPulseApp(
             confirmButton = {
                 TextButton(onClick = {
                     showReelDisclosure = false
-                    onOpenAccessibilitySettings()
+                    onToggleReelBlocking()
                 }) { Text("Open accessibility settings") }
             },
             dismissButton = {
@@ -607,10 +623,6 @@ private fun DashboardScreen(
     onRequestUsageAccess: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showSessionSetup by androidx.compose.runtime.remember { mutableStateOf(false) }
-    var selectedSubject by androidx.compose.runtime.remember { mutableStateOf("Physics") }
-    var selectedTopic by androidx.compose.runtime.remember { mutableStateOf(topicsBySubject.getValue("Physics").first()) }
-    var startVerb by androidx.compose.runtime.remember { mutableStateOf(listOf("Start", "Begin", "Kick Off", "Jump Into").random()) }
     var now by androidx.compose.runtime.remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(activeSession?.startedAt) {
         while (activeSession != null) {
@@ -643,6 +655,20 @@ private fun DashboardScreen(
             }
         }
         Text(greeting, color = Muted, fontSize = 14.sp)
+        if (activeSession == null) {
+            StudyLauncherControl(
+                onSelectSubject = { subject ->
+                    onStartStudy(subject, "Study session")
+                }
+            )
+        } else {
+            ActiveStudyCard(
+                session = activeSession,
+                now = now,
+                onFinish = onFinishStudy,
+                onCancel = onCancelStudy
+            )
+        }
 
         Card(
             shape = RoundedCornerShape(24.dp),
@@ -696,34 +722,9 @@ private fun DashboardScreen(
             )
         }
 
-        if (activeSession == null) {
-            Button(
-                onClick = {
-                    startVerb = listOf("Start", "Begin", "Kick Off", "Jump Into")
-                        .filterNot { it == startVerb }.random()
-                    showSessionSetup = true
-                },
-                modifier = Modifier.fillMaxWidth().height(58.dp),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                androidx.compose.material3.Icon(Icons.Default.PlayArrow, null)
-                Spacer(Modifier.width(8.dp))
-                AnimatedContent(targetState = startVerb, label = "study-button-label") { verb ->
-                    Text("$verb Study", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        } else {
-            ActiveStudyCard(
-                session = activeSession,
-                now = now,
-                onFinish = onFinishStudy,
-                onCancel = onCancelStudy
-            )
-        }
-
         ReelTrackerCard(
             snapshot = reelTracking,
-            onEnableTracking = onRequestReelTracking,
+            onRequestTracking = onRequestReelTracking,
             onToggleBlocking = onToggleReelBlocking
         )
 
@@ -748,13 +749,16 @@ private fun DashboardScreen(
                         }
                     }
                 }
-                trackedSocialApps.forEach { spec ->
-                    val appUsage = usage.apps.firstOrNull { it.packageName == spec.packageName }
-                    SocialUsageRow(
-                        app = spec,
-                        minutes = appUsage?.minutes ?: 0,
-                        hasAccess = usage.hasAccess
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    trackedSocialApps.forEach { spec ->
+                        val appUsage = usage.apps.firstOrNull { it.packageName == spec.packageName }
+                        SocialUsageTile(
+                            app = spec,
+                            minutes = appUsage?.minutes ?: 0,
+                            hasAccess = usage.hasAccess,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -785,48 +789,105 @@ private fun DashboardScreen(
         }
         Spacer(Modifier.height(8.dp))
     }
-    if (showSessionSetup) {
-        AlertDialog(
-            onDismissRequest = { showSessionSetup = false },
-            title = { Text("Set your focus") },
-            text = {
-                Column(
-                    Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("Choose a subject", color = Muted, fontSize = 12.sp)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        topicsBySubject.keys.forEach { subject ->
-                            FilterChip(
-                                selected = subject == selectedSubject,
-                                onClick = {
-                                    selectedSubject = subject
-                                    selectedTopic = topicsBySubject.getValue(subject).first()
-                                },
-                                label = { Text(subject) }
-                            )
-                        }
+}
+
+@Composable
+private fun StudyLauncherControl(
+    onSelectSubject: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val mainCircleSize by animateDpAsState(
+        targetValue = if (expanded) 44.dp else 116.dp,
+        label = "study-launcher-size"
+    )
+    Column(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier.size(mainCircleSize)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFF536DFE), Color(0xFF9A62D8), Color(0xFFEB6EAB))
+                    )
+                )
+                .clickable {
+                    if (expanded) {
+                        expanded = false
+                    } else {
+                        expanded = true
                     }
-                    Text("Pick a topic", color = Muted, fontSize = 12.sp)
-                    topicsBySubject.getValue(selectedSubject).forEach { topic ->
-                        FilterChip(
-                            selected = selectedTopic == topic,
-                            onClick = { selectedTopic = topic },
-                            label = { Text(topic) }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedContent(targetState = expanded, label = "study-launcher-icon") { isExpanded ->
+                if (isExpanded) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Cancel subject selection",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        androidx.compose.material3.Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp)
+                        )
+                        Text(
+                            "Start\nSession",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            lineHeight = 16.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showSessionSetup = false
-                    onStartStudy(selectedSubject, selectedTopic)
-                }) { Text("Start session") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSessionSetup = false }) { Text("Not now") }
             }
-        )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                topicsBySubject.keys.forEach { subject ->
+                    Box(
+                        Modifier.size(68.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFFE8EDFF), Color(0xFFF4E9FF))
+                                )
+                            )
+                            .clickable {
+                                onSelectSubject(subject)
+                                expanded = false
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            subject,
+                            color = Blue,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = if (subject == "Chemistry") 9.sp else 10.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 2,
+                            modifier = Modifier.padding(horizontal = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -843,24 +904,33 @@ private fun TimelineCard(
         logs.filter { isToday(it.timestamp) }.forEach { log ->
             add(
                 TimelineEntry(
-                    title = "${log.subject} • ${log.topic}",
+                    title = if (log.topic == "Study session") "${log.subject} study session" else "${log.subject} • ${log.topic}",
                     detail = "${timeLabel(log.startedAt)} – ${timeLabel(log.timestamp)} • ${formatDuration(log.minutes)} studied",
                     timestamp = log.startedAt,
-                    icon = Icons.Default.MenuBook,
-                    color = Blue
+                    icon = Icons.Default.AutoGraph,
+                    color = Blue,
+                    isStudy = true
                 )
             )
         }
-        usageEvents.filter { it.date == today }.forEach { event ->
+        usageEvents.filter { it.date == today }
+            .groupBy { event ->
+                val hour = Calendar.getInstance().apply { timeInMillis = event.timestamp }
+                    .get(Calendar.HOUR_OF_DAY)
+                event.packageName to hour
+            }
+            .forEach { (key, appEvents) ->
+                val app = trackedSocialApps.firstOrNull { it.packageName == key.first }
+                val appMinutes = appEvents.sumOf { it.minutes }
             add(
                 TimelineEntry(
-                    title = "${event.appName} used",
-                    detail = "${formatDuration(event.minutes)} app time detected",
-                    timestamp = event.timestamp,
-                    icon = trackedSocialApps.firstOrNull { it.packageName == event.packageName }?.icon
-                        ?: Icons.Default.MoreTime,
-                    color = trackedSocialApps.firstOrNull { it.packageName == event.packageName }?.color
-                        ?: Lilac
+                        title = "Used for ${formatDuration(appMinutes)}",
+                        detail = "-${formatMoney(appMinutes.toDouble())} deducted",
+                        timestamp = appEvents.minOf { it.timestamp },
+                        icon = app?.icon ?: Icons.Default.MoreTime,
+                        color = app?.color ?: Lilac,
+                        packageName = app?.packageName,
+                        iconAssetRes = app?.iconAssetRes
                 )
             )
         }
@@ -875,14 +945,19 @@ private fun TimelineCard(
                 )
             )
         }
-        swipeTimes.forEach { swipeTime ->
+        swipeTimes.groupBy { swipeTime ->
+            Calendar.getInstance().apply { timeInMillis = swipeTime }.get(Calendar.HOUR_OF_DAY)
+        }.forEach { (_, hourSwipeTimes) ->
+            val instagram = trackedSocialApps.first { it.packageName == INSTAGRAM_PACKAGE }
             add(
                 TimelineEntry(
-                    title = "Instagram Reel swipe",
-                    detail = "Estimated swipe • on-device count",
-                    timestamp = swipeTime,
-                    icon = Icons.Default.PhotoCamera,
-                    color = Color(0xFFE1306C)
+                    title = if (hourSwipeTimes.size == 1) "1 Reel watched" else "${hourSwipeTimes.size} Reels watched",
+                    detail = "Estimated from swipe count",
+                    timestamp = hourSwipeTimes.min(),
+                    icon = instagram.icon,
+                    color = instagram.color,
+                    packageName = instagram.packageName,
+                    iconAssetRes = instagram.iconAssetRes
                 )
             )
         }
@@ -890,11 +965,12 @@ private fun TimelineCard(
             if (isToday(session.startedAt)) {
                 add(
                     TimelineEntry(
-                        title = "Studying ${session.topic}",
-                        detail = "${session.subject} • in progress",
+                        title = "Studying ${session.subject}",
+                        detail = "Study session • in progress",
                         timestamp = session.startedAt,
-                        icon = Icons.Default.PlayArrow,
-                        color = Teal
+                        icon = Icons.Default.AutoGraph,
+                        color = Teal,
+                        isStudy = true
                     )
                 )
             }
@@ -952,10 +1028,12 @@ private fun TimelineCard(
                                 Spacer(Modifier.height(50.dp))
                             } else {
                                 hourEntries.forEach { entry ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TimelineEntryIcon(entry)
+                                        Spacer(Modifier.width(7.dp))
                                     Column(
                                         Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
                                             .background(entry.color.copy(alpha = .08f))
@@ -966,6 +1044,7 @@ private fun TimelineCard(
                                     }
                                     Spacer(Modifier.width(4.dp))
                                     Text(timeLabel(entry.timestamp), color = Muted, fontSize = 9.sp)
+                                    }
                                 }
                             }
                         }
@@ -975,6 +1054,46 @@ private fun TimelineCard(
         }
     }
 }
+
+@Composable
+private fun TimelineEntryIcon(entry: TimelineEntry) {
+    if (entry.packageName != null) {
+        SocialAppIcon(
+            iconAssetRes = entry.iconAssetRes ?: R.drawable.social_instagram,
+            fallbackIcon = entry.icon,
+            tint = entry.color,
+            modifier = Modifier.size(30.dp)
+        )
+    } else {
+        val scale = if (entry.isStudy) {
+            rememberInfiniteTransition(label = "study-timeline-icon")
+                .animateFloat(
+                    initialValue = .92f,
+                    targetValue = 1.08f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "study-icon-pulse"
+                ).value
+        } else {
+            1f
+        }
+        Box(
+            Modifier.size(30.dp).clip(CircleShape).background(entry.color.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.material3.Icon(
+                entry.icon,
+                contentDescription = null,
+                tint = entry.color,
+                modifier = Modifier.size(18.dp).graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -1049,34 +1168,70 @@ private fun TeacherCard(
 }
 
 @Composable
-private fun SocialUsageRow(app: SocialApp, minutes: Int, hasAccess: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+private fun SocialUsageTile(
+    app: SocialApp,
+    minutes: Int,
+    hasAccess: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.height(112.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(app.color.copy(alpha = .08f))
+            .padding(vertical = 9.dp, horizontal = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Box(
-            Modifier.size(34.dp).clip(CircleShape).background(app.color.copy(alpha = .12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.material3.Icon(app.icon, contentDescription = app.name, tint = app.color, modifier = Modifier.size(18.dp))
-        }
-        Spacer(Modifier.width(10.dp))
-        Text(app.name, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        if (!hasAccess) {
-            Text("—", color = Muted, fontSize = 13.sp)
-        } else {
-            Column(horizontalAlignment = Alignment.End) {
-                Text(formatDuration(minutes), color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Text("-${formatMoney(minutes.toDouble())}", color = Color(0xFFD94B55), fontSize = 10.sp)
-            }
-        }
+        SocialAppIcon(
+            iconAssetRes = app.iconAssetRes,
+            fallbackIcon = app.icon,
+            tint = app.color,
+            modifier = Modifier.size(28.dp)
+        )
+        Text(
+            app.name,
+            color = Ink,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            if (hasAccess) formatDuration(minutes) else "—",
+            color = Ink,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+        Text(
+            if (hasAccess) "-${formatMoney(minutes.toDouble())}" else "Not linked",
+            color = if (hasAccess) Color(0xFFD94B55) else Muted,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Clip
+        )
     }
+}
+
+@Composable
+private fun SocialAppIcon(
+    iconAssetRes: Int,
+    fallbackIcon: ImageVector,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.foundation.Image(
+        painter = painterResource(iconAssetRes),
+        contentDescription = null,
+        modifier = modifier
+    )
 }
 
 @Composable
 private fun ReelTrackerCard(
     snapshot: ReelTrackingSnapshot,
-    onEnableTracking: () -> Unit,
+    onRequestTracking: () -> Unit,
     onToggleBlocking: () -> Unit
 ) {
     Card(
@@ -1087,52 +1242,46 @@ private fun ReelTrackerCard(
         Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(42.dp).clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFFFFEAF1)),
+                    Modifier.size(34.dp).clip(CircleShape)
+                        .background(Color(0xFFF1F1F4)),
                     contentAlignment = Alignment.Center
                 ) {
-                    androidx.compose.material3.Icon(
-                        Icons.Default.PhotoCamera,
-                        contentDescription = null,
-                        tint = Color(0xFFE1306C)
+                    SocialAppIcon(
+                        iconAssetRes = R.drawable.social_instagram,
+                        fallbackIcon = Icons.Default.PhotoCamera,
+                        tint = Color(0xFFE1306C),
+                        modifier = Modifier.size(21.dp)
                     )
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Instagram Reels", color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Insta Reel Kill Switch", color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text(
-                        if (snapshot.enabled) "Swipe count is an estimate" else "Optional, on-device tracking",
+                        when {
+                            !snapshot.enabled -> "Switch on to enable on-device access"
+                            snapshot.blockEnabled -> "Reel blocking is active"
+                            else -> "${snapshot.count} estimated swipes today"
+                        },
                         color = Muted,
-                        fontSize = 11.sp
+                        fontSize = 10.sp
                     )
                 }
-                if (snapshot.enabled) {
-                    Text(snapshot.count.toString(), color = Blue, fontWeight = FontWeight.Bold, fontSize = 24.sp)
-                }
+                Switch(
+                    checked = snapshot.enabled && snapshot.blockEnabled,
+                    onCheckedChange = { enabled ->
+                        if (!enabled || snapshot.enabled) {
+                            onToggleBlocking()
+                        } else {
+                            onRequestTracking()
+                        }
+                    }
+                )
             }
             Text(
-                "Reel swipes detected today. Instagram updates may affect detection accuracy.",
+                "Swipe counts are estimates. Android accessibility access is required to block detected Reels.",
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 10.sp
             )
-            if (!snapshot.enabled) {
-                Button(onClick = onEnableTracking, modifier = Modifier.fillMaxWidth()) {
-                    Text("Enable Reel tracking")
-                }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Block detected Reels", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text(
-                            if (snapshot.blockEnabled) "A focus screen covers detected Reels" else "Reels stay open while tracking",
-                            color = Muted,
-                            fontSize = 10.sp
-                        )
-                    }
-                    Switch(checked = snapshot.blockEnabled, onCheckedChange = { onToggleBlocking() })
-                }
-                Text("Turn tracking off anytime in Android Accessibility settings.", color = Muted, fontSize = 10.sp)
-            }
         }
     }
 }
@@ -1156,7 +1305,7 @@ private fun ActiveStudyCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("FOCUS SESSION IN PROGRESS", color = Color.White.copy(alpha = .8f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text("${session.subject} • ${session.topic}", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(session.subject, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Text(formatElapsed(elapsed), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 36.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(

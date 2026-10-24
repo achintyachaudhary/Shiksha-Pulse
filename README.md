@@ -8,11 +8,11 @@ Open this folder in Android Studio and let Gradle sync. The project uses Kotlin,
 
 ## What is included
 
-- Dashboard with today's study time, a live study-session control, social-app deductions, a daily calendar-style timeline with empty hours, and an interactive weekly/monthly leaderboard chart.
-- Start a timed session from the dashboard by selecting Physics, Chemistry, Biology, or Maths and a topic. Finish to save the actual elapsed duration and study reward; active sessions survive an app restart.
+- Dashboard with a prominent **Start Session** control below the student greeting, today's study time, supplied social-app icons and usage tiles, a daily calendar-style timeline with empty hours, and an interactive weekly/monthly leaderboard chart.
+- Expand the study launcher to choose Physics, Chemistry, Biology, or Maths and start immediately. Finish a timed session to save its elapsed duration and reward; active sessions survive an app restart.
 - A first-launch student name prompt and randomized greetings.
 - Optional Android Usage Access integration for Instagram, YouTube, Snapchat, and WhatsApp.
-- Optional Instagram Accessibility Service for estimated Reel swipe counts and an on-device blocker overlay.
+- Optional Instagram **Insta Reel Kill Switch** with an on-device slider, estimated swipe count, and blocker overlay. Enabling it prompts for disclosure and Android Accessibility access when needed.
 - Teacher connection requests for Ashu Gupta, Aman Katiyar, Priya Thakur, and Amisha Shukla; sample availability determines whether a request is accepted or declined. There is no teacher-booking charge.
 - A sample monthly leaderboard with five example Indian students; it is not connected to other users.
 
@@ -26,7 +26,7 @@ The monthly leaderboard shows the student's study minutes logged in the current 
 
 Social usage is read through Android's UsageStatsManager. The student must enable **Usage Access** for Shiksha Pulse in Android settings. App usage totals, usage timeline events, study logs, teacher connection requests, and the chosen display name are stored locally; this app does not send them to a server. App usage is refreshed while Shiksha Pulse is open or resumed, so the saved deduction history depends on opening the app to capture each day's usage. Social usage can be unavailable on some Android devices.
 
-Instagram Reel tracking is optional and requires the student to explicitly enable the Shiksha Pulse Accessibility Service in Android settings after reading the in-app disclosure. It looks for Instagram Reel viewer resource identifiers, counts debounced scroll events, and stores only local swipe timestamps and counts; it does not save or send screen contents. Reel swipes are an estimate, not a guaranteed count of videos watched, and Instagram UI updates can affect detection.
+Instagram Reel tracking is optional and requires the student to explicitly enable the Shiksha Pulse Accessibility Service in Android settings after reading the in-app disclosure. It looks for Instagram Reel viewer resource identifiers, counts debounced scroll events, and stores only local swipe timestamps and counts; it does not save or send screen contents. Timeline swipes are grouped by hour. Reel swipes are an estimate, not a guaranteed count of videos watched, and Instagram UI updates can affect detection.
 
 When the student enables **Block detected Reels**, the service attempts a single tap on the identified Reel to pause playback, then displays an accessibility overlay that blocks touch gestures and offers a way back. Instagram may change its playback behavior, so the tap may not pause every Reel. The block only acts when the Instagram Reel viewer can be identified; it is not a device-wide Instagram blocker. The student can disable blocking in Shiksha Pulse or disable the Accessibility Service from Android settings. Android sends accessibility events from other apps so the overlay can be dismissed when leaving Instagram, but the service only inspects view identifiers while Instagram is foregrounded.
 

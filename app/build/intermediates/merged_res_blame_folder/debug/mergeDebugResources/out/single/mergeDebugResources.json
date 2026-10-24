@@ -1,10 +1,38 @@
 [
     {
+        "merged": "com.shikshapulse.app-debug-46:/drawable-nodpi_social_youtube.png.flat",
+        "source": "com.shikshapulse.app-main-48:/drawable-nodpi/social_youtube.png"
+    },
+    {
+        "merged": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-debug-46:/drawable-nodpi_social_instagram.jpg.flat",
+        "source": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-main-48:/drawable-nodpi/social_instagram.jpg"
+    },
+    {
+        "merged": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-debug-46:/drawable-nodpi_social_whatsapp.jpg.flat",
+        "source": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-main-48:/drawable-nodpi/social_whatsapp.jpg"
+    },
+    {
+        "merged": "com.shikshapulse.app-debug-46:/drawable-nodpi_social_snapchat.png.flat",
+        "source": "com.shikshapulse.app-main-48:/drawable-nodpi/social_snapchat.png"
+    },
+    {
         "merged": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-debug-46:/xml_reel_tracker_accessibility_service.xml.flat",
         "source": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-main-48:/xml/reel_tracker_accessibility_service.xml"
     },
     {
-        "merged": "com.shikshapulse.app-debug-46:/xml_reel_tracker_accessibility_service.xml.flat",
-        "source": "com.shikshapulse.app-main-48:/xml/reel_tracker_accessibility_service.xml"
+        "merged": "com.shikshapulse.app-debug-46:/drawable-nodpi_social_instagram.png.flat",
+        "source": "com.shikshapulse.app-main-48:/drawable-nodpi/social_instagram.png"
+    },
+    {
+        "merged": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-debug-46:/drawable-nodpi_social_snapchat.jpg.flat",
+        "source": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-main-48:/drawable-nodpi/social_snapchat.jpg"
+    },
+    {
+        "merged": "com.shikshapulse.app-debug-46:/drawable-nodpi_social_whatsapp.png.flat",
+        "source": "com.shikshapulse.app-main-48:/drawable-nodpi/social_whatsapp.png"
+    },
+    {
+        "merged": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-debug-46:/drawable-nodpi_social_youtube.png.flat",
+        "source": "/Users/archaudhary/.gradle/daemon/8.9/com.shikshapulse.app-main-48:/drawable-nodpi/social_youtube.png"
     }
 ]
